@@ -127,7 +127,9 @@ fn main() {
         }
     };
 
-    if let Err(e) = run(app::App::new(db)) {
+    let mut app = app::App::new(db);
+    app.start();
+    if let Err(e) = run(app) {
         eprintln!("{}", e);
         std::process::exit(1);
     }
@@ -571,6 +573,30 @@ mod scenario {
         key(&mut app, KeyCode::Down);
         assert_eq!(app.mode, app::Mode::Normal);
         assert_eq!(highlighted(&app), "one");
+    }
+
+    #[test]
+    fn starts_adding_a_todo_to_the_first_workspace() {
+        let path = std::env::temp_dir().join(format!("fooit-start-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        app.start();
+        assert!(!app.focused_tree().is_todos() && app.mode == app::Mode::Normal);
+
+        press(&mut app, "aFirst");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "Second");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "old");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        app.start();
+        assert!(app.focused_tree().is_todos());
+        assert_eq!(app.mode, app::Mode::Insert);
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(highlighted(&app), "First");
     }
 
     #[test]

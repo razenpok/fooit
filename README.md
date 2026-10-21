@@ -24,6 +24,8 @@ fooit buy milk
 Anything that isn't an option or command is added as a todo at the bottom of the
 topmost workspace.
 
+It opens on the first workspace's todos, already adding a new one; `escape` drops it.
+
 ## Keys (dooit's defaults)
 
 | key | action |

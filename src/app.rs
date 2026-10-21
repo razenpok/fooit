@@ -295,6 +295,17 @@ impl App {
         app
     }
 
+    /// Open on the first workspace's todos, adding a new one
+    pub fn start(&mut self) {
+        let first = self.ws_tree.first_enabled();
+        self.set_highlight(TreeRef::Workspaces, first);
+        if self.current_ws().is_some() {
+            if let Err(e) = self.run(Action::SwitchFocus) {
+                self.notify(e, Level::Error);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     // Tree bookkeeping
 
