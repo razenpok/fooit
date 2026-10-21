@@ -200,7 +200,7 @@ fn draw_dashboard(buf: &mut Buffer, area: Rect) {
     let inner = block.inner(area);
     block.render(area, buf);
 
-    let lines = ["Welcome to Dooit!", "", "If you're stuck, press '?' for help."];
+    let lines = ["Welcome to fooit!", "", "If you're stuck, press '?' for help."];
     let top = inner.y + inner.height.saturating_sub(lines.len() as u16) / 2;
     for (i, line) in lines.iter().enumerate() {
         let y = top + i as u16;
@@ -629,8 +629,7 @@ fn draw_help(buf: &mut Buffer, area: Rect, scroll: u16) -> u16 {
     let header_h = 3u16;
     let table_h = table_lines.len() as u16 + 4;
     let outro: Vec<Line> = vec![
-        Line::styled("     Thanks for using Dooit <3", Style::new().fg(PURPLE)),
-        Line::raw("You can find this project on  github -> "),
+        Line::styled("     Thanks for using fooit <3", Style::new().fg(PURPLE)),
         Line::raw(""),
         Line::from(vec![
             Span::raw("     Use "),
@@ -652,7 +651,7 @@ fn draw_help(buf: &mut Buffer, area: Rect, scroll: u16) -> u16 {
         .border_style(Style::new().fg(BG3));
     let inner = block.inner(header);
     block.render(header, &mut canvas);
-    Paragraph::new("Welcome to Dooit!").centered().render(inner, &mut canvas);
+    Paragraph::new("Welcome to fooit!").centered().render(inner, &mut canvas);
 
     // key table
     let table = Rect::new(x - area.x, 1 + header_h + 1, width, table_h);

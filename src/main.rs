@@ -20,7 +20,7 @@ use std::time::Duration;
 const DOOIT_VERSION: &str = "3.3.4";
 
 #[derive(Parser)]
-#[command(name = "fooit", about = "A Rust port of the dooit todo manager", disable_version_flag = true)]
+#[command(name = "fooit", about = "A terminal todo manager that shares dooit's database", disable_version_flag = true)]
 struct Cli {
     /// Show version and exit.
     #[arg(short = 'v', long)]
@@ -741,7 +741,7 @@ mod scenario {
         assert!(s.contains("Key Bindings"));
         press(&mut app, &"j".repeat(100));
         let s = screen(&mut term, &mut app, "help scrolled");
-        assert!(s.contains("Quit dooit") && s.contains("escape"));
+        assert!(s.contains("Quit fooit") && s.contains("escape"));
         key(&mut app, KeyCode::Esc);
         screen(&mut term, &mut app, "end");
     }

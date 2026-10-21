@@ -2,6 +2,7 @@
 name = "fooit"
 version = "0.1.0"
 edition = "2024"
+description = "A terminal todo manager that shares dooit's database"
 
 [dependencies]
 chrono = "0.4"

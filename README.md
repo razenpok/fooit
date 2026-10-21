@@ -1,18 +1,19 @@
 # fooit
 
-A Rust port of [dooit](https://github.com/dooit-org/dooit) (3.3.4 plus the local
-indent/dedent and editing changes), built with [ratatui](https://ratatui.rs).
+A terminal todo manager written in Rust with [ratatui](https://ratatui.rs). It
+started as a port of [dooit](https://github.com/dooit-org/dooit) 3.3.4 and keeps
+its look, its keys and its database.
 
-It uses the same SQLite schema and the same database file as dooit, so both can be
-used on the same todos:
+fooit uses the same SQLite schema and the same database file as dooit, so both can
+be used on the same todos:
 
 - macOS: `~/Library/Application Support/dooit/dooit.db`
 - Linux: `$XDG_DATA_HOME/dooit/dooit.db` (usually `~/.local/share/dooit/dooit.db`)
 
-Dates and recurrences are stored in the exact format SQLAlchemy uses, and the
-ORM hooks (sibling ordering, completing parents when all children are done,
-resetting children, recurrence pushing the due date, urgency clamped to 1-4)
-are reimplemented, so data round-trips between the two apps.
+Dates and recurrences are stored in the format SQLAlchemy uses, and dooit's ORM
+hooks (sibling ordering, completing parents when all children are done, resetting
+children, recurrence pushing the due date, urgency clamped to 1-4) are
+reimplemented, so data round-trips between the two apps.
 
 ## Usage
 
@@ -24,14 +25,15 @@ fooit buy milk
 Anything that isn't an option or command is added as a todo at the bottom of the
 topmost workspace.
 
-It opens on the first workspace's todos, already adding a new one; `escape` drops it.
+The app opens on the first workspace's todos, already adding a new one; `escape`
+drops it.
 
-## Keys (dooit's defaults)
+## Keys
 
 | key | action |
 | --- | --- |
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
-| `j` / `k`, down / up | move down / up (wrapping around the ends) |
+| `j` / `k`, down / up | move down / up, wrapping around the ends |
 | shift+down / shift+up | next / previous top-level item |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
@@ -43,37 +45,43 @@ It opens on the first workspace's todos, already adding a new one; `escape` drop
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |
-| `H` | show / hide completed todos (hidden on start, once the cursor leaves them) |
-| `X` | remove the completed todos of the workspace (asks for confirmation) |
+| `H` | show / hide completed todos |
+| `X` | remove the workspace's completed todos (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |
 | `/` | search |
 | `ctrl+s` | sort siblings |
 | `?` | help |
 | `q`, `ctrl+q`, `ctrl+c` | quit |
 
-With the mouse, clicking a todo's status toggles its completion, clicking a todo's
-description, due date or urgency starts editing it with the cursor where you clicked,
-clicking a workspace selects it, the wheel moves the cursor, and dragging a row moves it along with its
-children. Where it lands follows the pointer, and moving sideways while dragging
-nests it deeper or shallower, as far as the rows around it allow. Dropping a todo on
-another workspace moves it to the bottom of that workspace. While editing, the
-mouse is left to the terminal, so text can be selected.
-
 While editing, `enter` saves (and on a description, starts a new sibling) and
 `escape` discards, asking first if something changed. The up and down arrows (also
 with shift) and `tab` save the edit and then move the cursor or switch lists.
 
+Completed todos are hidden, once the cursor has left them and their children.
+
+## Mouse
+
+- Click a todo's status to toggle it.
+- Click a todo's description, due date or urgency to edit it, with the cursor where
+  you clicked. Click a workspace to select it.
+- Drag a row to move it along with its children. Moving sideways while dragging
+  nests it deeper or shallower, as far as the rows around it allow.
+- Drop a todo on another workspace to move it to the bottom of that workspace.
+- The wheel moves the cursor.
+
+While editing, the mouse is left to the terminal, so text can be selected.
+
 ## Differences from dooit
 
 - dooit's Python config files (`config.py`) are not supported; fooit always uses
-  dooit's default keys, layout, theme and status bar.
+  dooit's default layout, theme and status bar.
 - `dooit migrate` (v2 YAML import) is not ported; use dooit for that one-off step.
+- Items start expanded and completed todos start hidden.
 - Copied items can be pasted into any workspace, and are pasted next to the
   highlighted item rather than next to the original.
 - Due dates accept a practical subset of what `dateutil` parses, plus `today`,
   `tomorrow` and `yesterday`.
-- Arrow keys move the cursor in addition to `j`/`k`.
-- Items start expanded, so children are shown when the app opens; `z` collapses them.
+- The extra keys and the mouse support above.
 
 ## Development
 

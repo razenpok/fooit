@@ -40,7 +40,7 @@ pub enum Action {
 }
 
 impl Action {
-    /// The docstrings dooit shows on its help screen
+    /// The descriptions shown on the help screen
     pub fn description(&self) -> &'static str {
         match self {
             Action::SwitchFocus => "Switch focus between the workspace and the todo list",
@@ -74,7 +74,7 @@ impl Action {
             Action::DecreaseUrgency => "Decrease the urgency of the todo",
             Action::StartSearch => "Start a search within the list",
             Action::StartSort => "Start sorting the siblings of the highlighted item",
-            Action::Quit => "Quit dooit",
+            Action::Quit => "Quit fooit",
             Action::ShowHelp => "Show the help screen",
         }
     }
@@ -92,7 +92,7 @@ pub struct KeyManager {
 }
 
 impl KeyManager {
-    /// The bindings from dooit's default config
+    /// The bindings: dooit's defaults plus fooit's own
     pub fn with_defaults() -> KeyManager {
         let mut km = KeyManager {
             bindings: vec![],
