@@ -7,6 +7,7 @@ mod ui;
 #[cfg(test)]
 mod bench;
 
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind};
 use ratatui::crossterm::execute;
@@ -56,8 +57,36 @@ fn expand_user(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Add a todo at the bottom of the topmost workspace, returning that workspace's description
+fn add_task(db: &mut db::Db, description: &str) -> Result<String, String> {
+    let root = db.root_id().ok_or("No workspace to add the task to")?;
+    let ws = *db.children(db::Parent::Ws(root), false).first().ok_or("No workspace to add the task to")?;
+    let todo = db.insert(ws.as_parent(), true, None)?;
+    db.set_description(todo, description)?;
+    Ok(db.description(ws).to_string())
+}
+
 fn main() {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // anything that is not an option or command is a new task
+            let task = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
+            let task = task.trim();
+            if task.is_empty() || matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+                e.exit();
+            }
+            let path = data_dir().join("dooit.db");
+            match db::Db::open(&path).and_then(|mut db| add_task(&mut db, task)) {
+                Ok(ws) => println!("Added \"{}\" to {}", task, ws),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+    };
 
     if cli.version {
         println!("fooit - {} (dooit {})", env!("CARGO_PKG_VERSION"), DOOIT_VERSION);
@@ -185,6 +214,30 @@ mod scenario {
     fn highlighted(app: &app::App) -> String {
         let tree = app.tree(app.focused_tree()).unwrap();
         app.db.description(tree.current().unwrap()).to_string()
+    }
+
+    #[test]
+    fn adds_task_to_topmost_workspace() {
+        let mut app = temp_app("add-task");
+        assert!(add_task(&mut app.db, "nowhere").is_err());
+        press(&mut app, "aFirst");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "Second");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "existing");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+
+        assert_eq!(add_task(&mut app.db, "buy milk").unwrap(), "First");
+        let todos = |db: &db::Db, ws: &str| -> Vec<String> {
+            let root = db::Parent::Ws(db.root_id().unwrap());
+            let ws = db.children(root, false).into_iter().find(|w| db.description(*w) == ws).unwrap();
+            db.children(ws.as_parent(), true).iter().map(|t| db.description(*t).to_string()).collect()
+        };
+        assert_eq!(todos(&app.db, "First"), ["buy milk"]);
+        assert_eq!(todos(&app.db, "Second"), ["existing"]);
+        add_task(&mut app.db, "then bread").unwrap();
+        assert_eq!(todos(&app.db, "First"), ["buy milk", "then bread"]);
     }
 
     #[test]

@@ -18,7 +18,11 @@ are reimplemented, so data round-trips between the two apps.
 
 ```
 fooit [--db PATH] [-v] [config-loc]
+fooit buy milk
 ```
+
+Anything that isn't an option or command is added as a todo at the bottom of the
+topmost workspace.
 
 ## Keys (dooit's defaults)
 
