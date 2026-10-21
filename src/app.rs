@@ -505,8 +505,13 @@ impl App {
         }
     }
 
+    /// Whether the mouse is ours; while editing it is left to the terminal for selecting text
+    pub fn wants_mouse(&self) -> bool {
+        self.mode != Mode::Insert
+    }
+
     pub fn on_mouse(&mut self, event: MouseEvent) {
-        if self.help.is_some() || self.bar_focused() {
+        if self.help.is_some() || self.bar_focused() || !self.wants_mouse() {
             return;
         }
         let (x, y) = (event.column, event.row);
@@ -544,15 +549,6 @@ impl App {
         let Some((tree, index)) = self.row_at(x, y) else { return Ok(()) };
         let item = self.tree(tree).unwrap().rows[index].item;
         let depth = self.tree(tree).unwrap().rows[index].depth;
-
-        // finish an edit first, like the arrows do; an empty new item disappears
-        let focused = self.focused_tree();
-        if self.tree(focused).and_then(|t| t.editing()).is_some() {
-            self.stop_edit(focused, false);
-            if !self.db.exists(item) {
-                return Ok(());
-            }
-        }
 
         self.focus = if tree.is_todos() { Focus::Todos } else { Focus::Workspaces };
         self.highlight_item(tree, item);

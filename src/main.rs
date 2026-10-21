@@ -141,7 +141,16 @@ fn run(mut app: app::App) -> std::io::Result<()> {
         // redraw only after an event, an outside change, or when the status bar clock moves on
         let mut dirty = true;
         let mut shown_second = 0;
+        let mut capturing = true;
         loop {
+            if app.wants_mouse() != capturing {
+                capturing = !capturing;
+                if capturing {
+                    execute!(std::io::stdout(), EnableMouseCapture)?;
+                } else {
+                    execute!(std::io::stdout(), DisableMouseCapture)?;
+                }
+            }
             let second = chrono::Local::now().timestamp();
             if dirty || second != shown_second {
                 terminal.draw(|f| ui::draw(f, &mut app))?;
@@ -450,6 +459,15 @@ mod scenario {
         assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 0)]);
         let b = at(&mut term, &mut app, "B", 0);
         drag(&mut term, &mut app, b, (b.0 + 8, b.1));
+        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
+
+        // while editing the mouse is left to the terminal
+        press(&mut app, "i");
+        assert!(!app.wants_mouse());
+        let c = at(&mut term, &mut app, "C", 0);
+        drag(&mut term, &mut app, c, (c.0, c.1 - 1));
+        key(&mut app, KeyCode::Esc);
+        assert!(app.wants_mouse());
         assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
 
         // a plain click only highlights
