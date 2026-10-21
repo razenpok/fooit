@@ -22,18 +22,6 @@ pub enum Mode {
     Confirm,
 }
 
-impl Mode {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Mode::Normal => "NORMAL",
-            Mode::Insert => "INSERT",
-            Mode::Search => "SEARCH",
-            Mode::Sort => "SORT",
-            Mode::Confirm => "CONFIRM",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum Level {
@@ -276,7 +264,6 @@ pub struct App {
     pub show_confirm: bool,
     pub help: Option<u16>,
     pub quit: bool,
-    pub username: String,
     ws_clipboard: Option<Item>,
     todo_clipboard: Option<Item>,
     last_poll: Instant,
@@ -284,10 +271,6 @@ pub struct App {
 
 impl App {
     pub fn new(db: Db) -> App {
-        let username = std::env::var("USER")
-            .or_else(|_| std::env::var("LOGNAME"))
-            .unwrap_or_else(|_| "user".into());
-
         let mut app = App {
             db,
             ws_tree: TreeState::default(),
@@ -302,7 +285,6 @@ impl App {
             show_confirm: true,
             help: None,
             quit: false,
-            username,
             ws_clipboard: None,
             todo_clipboard: None,
             last_poll: Instant::now(),

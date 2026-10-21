@@ -147,9 +147,9 @@ fn run(mut app: app::App) -> std::io::Result<()> {
     }
 
     let result = (|| -> std::io::Result<()> {
-        // redraw only after an event, an outside change, or when the status bar clock moves on
+        // redraw only after an event, an outside change, or each minute so todos turn overdue
         let mut dirty = true;
-        let mut shown_second = 0;
+        let mut shown_minute = 0;
         let mut capturing = true;
         loop {
             if app.wants_mouse() != capturing {
@@ -160,11 +160,11 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                     execute!(std::io::stdout(), DisableMouseCapture)?;
                 }
             }
-            let second = chrono::Local::now().timestamp();
-            if dirty || second != shown_second {
+            let minute = chrono::Local::now().timestamp() / 60;
+            if dirty || minute != shown_minute {
                 terminal.draw(|f| ui::draw(f, &mut app))?;
                 dirty = false;
-                shown_second = second;
+                shown_minute = minute;
             }
             if app.quit || stop.load(Ordering::Relaxed) {
                 return Ok(());
@@ -690,11 +690,11 @@ mod scenario {
         press(&mut app, "a");
         press(&mut app, "Scenario");
         let s = screen(&mut term, &mut app, "typing workspace");
-        assert!(s.contains("Scenario|") && s.contains("INSERT"));
+        assert!(s.contains("Scenario|") && s.contains("Save: enter") && app.mode == app::Mode::Insert);
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Esc);
         let s = screen(&mut term, &mut app, "workspace added");
-        assert!(s.contains("Scenario") && s.contains("NORMAL"));
+        assert!(s.contains("Scenario") && s.contains("Keybindings: ?") && app.mode == app::Mode::Normal);
 
         // tab into the todo list starts a new todo
         key(&mut app, KeyCode::Tab);
@@ -740,7 +740,7 @@ mod scenario {
         // search
         press(&mut app, "/Sec");
         let s = screen(&mut term, &mut app, "searching");
-        assert!(s.contains("/Sec|") && app.mode == app::Mode::Search);
+        assert!(s.contains("Search: Sec|") && app.mode == app::Mode::Search);
         key(&mut app, KeyCode::Esc);
 
         // sort
@@ -762,7 +762,8 @@ mod scenario {
         assert!(s.contains("Discard changes? [y/N]"));
         press(&mut app, "n");
         let s = screen(&mut term, &mut app, "still editing");
-        assert!(s.contains("INSERT"));
+        assert!(s.contains("Save: enter"));
+        assert!(app.mode == app::Mode::Insert);
         key(&mut app, KeyCode::Esc);
         press(&mut app, "y");
 
@@ -777,10 +778,10 @@ mod scenario {
 
         press(&mut app, "?");
         let s = screen(&mut term, &mut app, "help");
-        assert!(s.contains("Key Bindings"));
+        assert!(s.contains("Keybindings") && s.contains("Close: esc"));
         press(&mut app, &"j".repeat(100));
         let s = screen(&mut term, &mut app, "help scrolled");
-        assert!(s.contains("Quit fooit") && s.contains("escape"));
+        assert!(s.contains("Quit fooit"));
         key(&mut app, KeyCode::Esc);
         screen(&mut term, &mut app, "end");
     }

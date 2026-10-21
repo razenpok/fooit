@@ -2,7 +2,8 @@
 
 A terminal todo manager written in Rust with [ratatui](https://ratatui.rs). It
 started as a port of [dooit](https://github.com/dooit-org/dooit) 3.3.4 and keeps
-its look, its keys and its database.
+its keys and its database. It looks like [lazygit](https://github.com/jesseduffield/lazygit),
+in the terminal's own colors.
 
 fooit uses the same SQLite schema and the same database file as dooit, so both can
 be used on the same todos:
@@ -73,8 +74,8 @@ While editing, the mouse is left to the terminal, so text can be selected.
 
 ## Differences from dooit
 
-- dooit's Python config files (`config.py`) are not supported; fooit always uses
-  dooit's default layout, theme and status bar.
+- dooit's Python config files (`config.py`) are not supported, and the layout and
+  colors follow lazygit instead of dooit.
 - `dooit migrate` (v2 YAML import) is not ported; use dooit for that one-off step.
 - Items start expanded and completed todos start hidden.
 - Copied items can be pasted into any workspace, and are pasted next to the
