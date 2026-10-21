@@ -108,7 +108,7 @@ impl KeyManager {
             (&["d"], Action::EditDue),
             (&["r"], Action::EditRecurrence),
             (&["e"], Action::EditEffort),
-            (&["a"], Action::AddSibling),
+            (&["a", "<enter>"], Action::AddSibling),
             (&["z"], Action::ToggleExpand),
             (&["Z"], Action::ToggleExpandParent),
             (&["gg"], Action::GoToTop),
@@ -252,5 +252,7 @@ mod tests {
         assert!(matches!(km.register("j", false), KeyMatch::NoMatch));
         assert!(matches!(km.register("ctrl+s", true), KeyMatch::Found(Action::StartSort)));
         assert!(matches!(km.register("q", true), KeyMatch::Found(Action::Quit)));
+        assert!(matches!(km.register("enter", true), KeyMatch::Found(Action::AddSibling)));
+        assert!(matches!(km.register("enter", false), KeyMatch::NoMatch));
     }
 }

@@ -33,7 +33,7 @@ topmost workspace.
 | shift+down / shift+up | next / previous top-level item |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
-| `a` / `A` | add sibling / child |
+| `a`, `enter` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
 | `>>` / `<<`, right / left | indent / dedent |
