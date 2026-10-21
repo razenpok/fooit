@@ -1,6 +1,6 @@
 //! Rendering, matching dooit's default theme and layout
 
-use crate::app::{indent, layout, row_cells, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, layout, row_cells, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -227,11 +227,13 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     let Item::Todo(id) = item else {
         return vec![Span::raw(display(app.db.description(item)))];
     };
-    let Some(todo) = app.db.todo(id) else { return vec![] };
-
     let bold = |text: String, color: Color| {
         Span::styled(text, Style::new().fg(color).add_modifier(Modifier::BOLD))
     };
+    if is_draft(item) && field == Field::Status {
+        return vec![bold("o".into(), YELLOW)];
+    }
+    let Some(todo) = app.db.todo(id) else { return vec![] };
 
     match field {
         Field::Description => vec![Span::raw(display(&todo.description))],

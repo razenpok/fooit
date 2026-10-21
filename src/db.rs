@@ -528,12 +528,26 @@ impl Db {
 
     /// Insert a new empty item of the given kind under `parent`, at `position`
     /// among its siblings (or at the end)
+    #[cfg(test)]
     pub fn insert(&mut self, parent: Parent, todo: bool, position: Option<usize>) -> Result<Item> {
+        self.insert_with_description(parent, todo, position, "")
+    }
+
+    /// Insert a new item of the given kind under `parent`, at `position` among its
+    /// siblings (or at the end)
+    pub fn insert_with_description(
+        &mut self,
+        parent: Parent,
+        todo: bool,
+        position: Option<usize>,
+        description: &str,
+    ) -> Result<Item> {
         let mut siblings = self.children(parent, todo);
         let tx = self.conn.transaction().map_err(err)?;
 
         let item = if todo {
-            Item::Todo(Self::insert_todo_row(&tx, &Self::new_todo(parent))?)
+            let todo = Todo { description: description.to_string(), ..Self::new_todo(parent) };
+            Item::Todo(Self::insert_todo_row(&tx, &todo)?)
         } else {
             let Parent::Ws(pid) = parent else {
                 return Err("Cannot add a workspace to a todo".into());
@@ -543,7 +557,7 @@ impl Db {
                 &Workspace {
                     id: 0,
                     order_index: -1,
-                    description: String::new(),
+                    description: description.to_string(),
                     is_root: false,
                     parent_workspace_id: Some(pid),
                 },
@@ -558,6 +572,7 @@ impl Db {
         Ok(item)
     }
 
+    #[cfg(test)]
     pub fn add_sibling(&mut self, item: Item) -> Result<Item> {
         let parent = self
             .parent_of(item)
@@ -567,6 +582,7 @@ impl Db {
         self.insert(parent, item.is_todo(), Some(index + 1))
     }
 
+    #[cfg(test)]
     pub fn add_child(&mut self, item: Item) -> Result<Item> {
         self.insert(item.as_parent(), item.is_todo(), None)
     }

@@ -65,8 +65,7 @@ fn expand_user(path: &str) -> PathBuf {
 fn add_task(db: &mut db::Db, description: &str) -> Result<String, String> {
     let root = db.root_id().ok_or("No workspace to add the task to")?;
     let ws = *db.children(db::Parent::Ws(root), false).first().ok_or("No workspace to add the task to")?;
-    let todo = db.insert(ws.as_parent(), true, None)?;
-    db.set_description(todo, description)?;
+    db.insert_with_description(ws.as_parent(), true, None, description)?;
     Ok(db.description(ws).to_string())
 }
 
@@ -651,7 +650,15 @@ mod scenario {
         let mut app = app::App::new(db::Db::open(&path).unwrap());
         press(&mut app, "aWork");
         key(&mut app, KeyCode::Tab);
+        let ws = app.current_ws().unwrap();
+        let in_db = |app: &app::App| app.db.children(db::Parent::Ws(ws), true).len();
+        assert_eq!(app.mode, app::Mode::Insert);
+        assert_eq!(in_db(&app), 0);
+        press(&mut app, "x");
+        assert_eq!(in_db(&app), 0);
+        key(&mut app, KeyCode::Backspace);
         app.close();
+        assert_eq!(in_db(&app), 0);
 
         let mut app = app::App::new(db::Db::open(&path).unwrap());
         app.start();

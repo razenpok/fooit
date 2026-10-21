@@ -148,6 +148,22 @@ pub struct DropTarget {
     pub depth: usize,
 }
 
+/// The id new items have on screen until they are saved with a description
+pub const DRAFT_ID: i64 = -1;
+
+pub fn is_draft(item: Item) -> bool {
+    matches!(item, Item::Ws(DRAFT_ID) | Item::Todo(DRAFT_ID))
+}
+
+/// A new item being added, which only goes into the database once it has a description
+#[derive(Clone, Copy)]
+pub struct Draft {
+    pub item: Item,
+    pub parent: Parent,
+    /// The sibling it goes after, or None to go first
+    pub after: Option<Item>,
+}
+
 pub struct Edit {
     pub item: Item,
     pub field: Field,
@@ -161,7 +177,7 @@ pub struct TreeState {
     pub filter: String,
     pub offset: usize,
     pub edit: Option<Edit>,
-    pub unsaved: Option<Item>,
+    pub draft: Option<Draft>,
     /// Per-row column widths (by layout position, ignoring any edit) and the db generation they were measured at
     pub widths: Option<(u64, Vec<Vec<usize>>)>,
     pub view: View,
@@ -306,17 +322,12 @@ impl App {
         }
     }
 
-    /// Finish a new item that is still being added, so none is left without a description:
-    /// it is kept when something was typed, and removed otherwise
+    /// Keep a new item that is still being added if something was typed for it
     pub fn close(&mut self) {
         let mut trees = vec![TreeRef::Workspaces];
         trees.extend(self.todo_trees.keys().map(|ws| TreeRef::Todos(*ws)));
         for tree in trees {
-            let state = self.tree_mut(tree);
-            if state.unsaved.is_some() && state.edit.as_ref().map(|e| e.item) == state.unsaved {
-                if let Some(index) = state.index_of(state.unsaved.unwrap()) {
-                    state.highlighted = Some(index);
-                }
+            if self.tree(tree).is_some_and(|t| t.draft.is_some() && t.editing().is_some()) {
                 self.stop_edit(tree, false);
             }
         }
@@ -327,7 +338,7 @@ impl App {
 
     pub fn current_ws(&self) -> Option<i64> {
         match self.ws_tree.current() {
-            Some(Item::Ws(id)) => Some(id),
+            Some(Item::Ws(id)) if id != DRAFT_ID => Some(id),
             _ => None,
         }
     }
@@ -378,6 +389,7 @@ impl App {
         };
 
         let filter = state.filter.clone();
+        let draft = state.draft;
         let highlighted_item = state.current();
         let highlighted_index = state.highlighted;
 
@@ -394,23 +406,37 @@ impl App {
             todos: bool,
             filter: &'a str,
             kept: &'a HashSet<Item>,
+            draft: Option<Draft>,
             rows: Vec<Row>,
         }
         fn walk(w: &mut Walk, parent: Parent, depth: usize, in_kept: bool) {
+            let draft = w.draft.filter(|d| d.parent == parent);
+            let draft_row = |d: Draft| Row { item: d.item, depth, enabled: true };
+            let mut placed = false;
+            if let Some(d) = draft.filter(|d| d.after.is_none()) {
+                w.rows.push(draft_row(d));
+                placed = true;
+            }
             for child in w.app.db.children(parent, w.todos) {
                 let completed = w.app.is_completed(child);
                 let kept = completed && w.kept.contains(&child);
-                if completed && !w.app.show_completed && !in_kept && !kept {
-                    continue;
+                if !completed || w.app.show_completed || in_kept || kept {
+                    let enabled = w.app.db.description(child).contains(w.filter);
+                    w.rows.push(Row { item: child, depth, enabled });
+                    if !w.app.collapsed.contains(&child) || !w.filter.is_empty() {
+                        walk(w, child.as_parent(), depth + 1, in_kept || kept);
+                    }
                 }
-                let enabled = w.app.db.description(child).contains(w.filter);
-                w.rows.push(Row { item: child, depth, enabled });
-                if !w.app.collapsed.contains(&child) || !w.filter.is_empty() {
-                    walk(w, child.as_parent(), depth + 1, in_kept || kept);
+                if let Some(d) = draft.filter(|d| !placed && d.after == Some(child)) {
+                    w.rows.push(draft_row(d));
+                    placed = true;
                 }
             }
+            if let Some(d) = draft.filter(|_| !placed) {
+                w.rows.push(draft_row(d));
+            }
         }
-        let mut w = Walk { app: self, todos, filter: &filter, kept: &kept, rows: vec![] };
+        let mut w = Walk { app: self, todos, filter: &filter, kept: &kept, draft, rows: vec![] };
         if let Some(root) = root {
             walk(&mut w, root, 0, false);
         }
@@ -431,7 +457,7 @@ impl App {
         if let Some(edit) = &state.edit {
             if state.index_of(edit.item).is_none() {
                 state.edit = None;
-                state.unsaved = None;
+                state.draft = None;
             }
         }
     }
@@ -988,13 +1014,9 @@ impl App {
             self.mode = Mode::Normal;
             return true;
         };
-        let is_unsaved = state.unsaved == Some(edit.item);
-        state.unsaved = None;
-
-        if is_unsaved && (discard || edit.input.value().trim().is_empty()) {
-            self.drop_current(tree);
+        if let Some(draft) = state.draft.take() {
             self.mode = Mode::Normal;
-            return false;
+            return self.finish_draft(tree, draft, &edit, discard);
         }
 
         if !discard {
@@ -1029,23 +1051,31 @@ impl App {
         });
     }
 
-    /// Remove the highlighted item without confirmation, highlighting the one above
-    fn drop_current(&mut self, tree: TreeRef) {
-        let state = self.tree_mut(tree);
-        let index = state.highlighted.unwrap_or(0);
-        let Some(item) = state.current() else { return };
-
-        self.collapsed.remove(&item);
-        if let Err(e) = self.db.delete(item) {
-            self.notify(e, Level::Error);
+    /// Add a new item to the database once it has a description, otherwise drop it and
+    /// highlight the row above; returns whether it was added
+    fn finish_draft(&mut self, tree: TreeRef, draft: Draft, edit: &Edit, discard: bool) -> bool {
+        let description = edit.input.value().trim().to_string();
+        if !discard && !description.is_empty() {
+            let siblings = self.db.children(draft.parent, draft.item.is_todo());
+            let position = draft.after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
+            match self.db.insert_with_description(draft.parent, draft.item.is_todo(), Some(position), &description) {
+                Ok(item) => {
+                    self.refresh_all();
+                    self.highlight_item(tree, item);
+                    return true;
+                }
+                Err(e) => self.notify(e, Level::Error),
+            }
         }
-        self.refresh_all();
 
+        let index = self.tree_mut(tree).highlighted.unwrap_or(0);
+        self.refresh_all();
         let state = self.tree_mut(tree);
         let index = if state.rows.is_empty() { None } else { Some(index.saturating_sub(1)) };
         state.clamp(index);
         let highlighted = state.highlighted;
         self.set_highlight(tree, highlighted);
+        false
     }
 
     fn set_filter(&mut self, tree: TreeRef, filter: String) {
@@ -1059,54 +1089,44 @@ impl App {
     // ------------------------------------------------------------------
     // Node operations
 
-    fn start_editing_new_node(&mut self, tree: TreeRef, item: Item) -> Result<()> {
-        self.tree_mut(tree).unsaved = Some(item);
+    /// Start adding a new item under `parent`, after the sibling `after` (or first)
+    fn start_draft(&mut self, tree: TreeRef, parent: Parent, after: Option<Item>) -> Result<()> {
+        let item = if tree.is_todos() { Item::Todo(DRAFT_ID) } else { Item::Ws(DRAFT_ID) };
+        self.tree_mut(tree).draft = Some(Draft { item, parent, after });
+        self.refresh_all();
         self.highlight_item(tree, item);
         self.start_edit(tree, Field::Description)
-    }
-
-    fn add_first_item(&mut self, tree: TreeRef) -> Result<Item> {
-        let item = match tree {
-            TreeRef::Workspaces => {
-                let root = self.db.ensure_root()?;
-                self.db.insert(Parent::Ws(root), false, None)?
-            }
-            TreeRef::Todos(ws) => self.db.insert(Parent::Ws(ws), true, None)?,
-        };
-        self.refresh_all();
-        Ok(item)
     }
 
     fn add_last_item(&mut self, tree: TreeRef) -> Result<()> {
         if self.tree(tree).and_then(|t| t.editing()).is_some() {
             return Ok(());
         }
-        let item = self.add_first_item(tree)?;
-        self.start_editing_new_node(tree, item)
+        let parent = match tree {
+            TreeRef::Workspaces => Parent::Ws(self.db.ensure_root()?),
+            TreeRef::Todos(ws) => Parent::Ws(ws),
+        };
+        let last = self.db.children(parent, tree.is_todos()).last().copied();
+        self.start_draft(tree, parent, last)
     }
 
     fn add_sibling(&mut self, tree: TreeRef) -> Result<()> {
         if self.tree(tree).and_then(|t| t.editing()).is_some() {
             return Ok(());
         }
-
-        let item = if self.tree_mut(tree).rows.is_empty() {
-            self.add_first_item(tree)?
-        } else {
-            let current = self.current_item(tree)?;
-            let item = self.db.add_sibling(current)?;
-            self.refresh_all();
-            item
-        };
-        self.start_editing_new_node(tree, item)
+        if self.tree_mut(tree).rows.is_empty() {
+            return self.add_last_item(tree);
+        }
+        let current = self.current_item(tree)?;
+        let parent = self.db.parent_of(current).ok_or("Cannot add a sibling to the root")?;
+        self.start_draft(tree, parent, Some(current))
     }
 
     fn add_child(&mut self, tree: TreeRef) -> Result<()> {
         let current = self.current_item(tree)?;
-        let item = self.db.add_child(current)?;
+        let last = self.db.children(current.as_parent(), current.is_todo()).last().copied();
         self.collapsed.remove(&current);
-        self.refresh_all();
-        self.start_editing_new_node(tree, item)
+        self.start_draft(tree, current.as_parent(), last)
     }
 
     fn remove(&mut self, tree: TreeRef, item: Item) {
