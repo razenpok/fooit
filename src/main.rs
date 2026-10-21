@@ -183,9 +183,8 @@ mod scenario {
         let s = screen(&mut term, &mut app, "workspace added");
         assert!(s.contains("Scenario") && s.contains("NORMAL"));
 
-        // switch to the todo list and add todos
+        // tab into the todo list starts a new todo
         key(&mut app, KeyCode::Tab);
-        press(&mut app, "a");
         press(&mut app, "Write the port");
         key(&mut app, KeyCode::Enter);
         press(&mut app, "a");

@@ -698,6 +698,14 @@ impl App {
         Ok(item)
     }
 
+    fn add_last_item(&mut self, tree: TreeRef) -> Result<()> {
+        if self.tree(tree).and_then(|t| t.editing()).is_some() {
+            return Ok(());
+        }
+        let item = self.add_first_item(tree)?;
+        self.start_editing_new_node(tree, item)
+    }
+
     fn add_sibling(&mut self, tree: TreeRef) -> Result<()> {
         if self.tree(tree).and_then(|t| t.editing()).is_some() {
             return Ok(());
@@ -813,8 +821,9 @@ impl App {
         match action {
             Action::SwitchFocus => match self.focus {
                 Focus::Workspaces => {
-                    if self.current_ws().is_some() {
+                    if let Some(ws) = self.current_ws() {
                         self.focus = Focus::Todos;
+                        self.add_last_item(TreeRef::Todos(ws))?;
                     }
                 }
                 Focus::Todos => self.focus = Focus::Workspaces,

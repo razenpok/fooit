@@ -24,7 +24,7 @@ fooit [--db PATH] [-v] [config-loc]
 
 | key | action |
 | --- | --- |
-| `tab` | switch between workspaces and todos |
+| `tab` | switch between workspaces and todos (entering todos starts a new todo) |
 | `j` / `k`, arrows | move down / up |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
