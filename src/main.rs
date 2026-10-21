@@ -194,6 +194,11 @@ mod scenario {
         let s = screen(&mut term, &mut app, "todos added");
         assert!(s.contains("Write the port") && s.contains("Second todo"));
 
+        // a new item left empty is dropped again
+        press(&mut app, "a");
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.tree(app.focused_tree()).unwrap().rows.len(), 2);
+
         // due date, urgency, completion
         press(&mut app, "d");
         press(&mut app, "2020-01-02 10:30");

@@ -103,6 +103,7 @@ pub struct TreeState {
     pub filter: String,
     pub offset: usize,
     pub edit: Option<Edit>,
+    pub unsaved: Option<Item>,
 }
 
 impl TreeState {
@@ -309,6 +310,7 @@ impl App {
         if let Some(edit) = &state.edit {
             if state.index_of(edit.item).is_none() {
                 state.edit = None;
+                state.unsaved = None;
             }
         }
     }
@@ -623,11 +625,21 @@ impl App {
         self.db.update_todo(todo)
     }
 
-    fn stop_edit(&mut self, tree: TreeRef) {
-        let Some(edit) = self.tree_mut(tree).edit.take() else {
+    /// Stop editing the highlighted item, returns false if the item was dropped
+    fn stop_edit(&mut self, tree: TreeRef) -> bool {
+        let state = self.tree_mut(tree);
+        let Some(edit) = state.edit.take() else {
             self.mode = Mode::Normal;
-            return;
+            return true;
         };
+        let is_unsaved = state.unsaved == Some(edit.item);
+        state.unsaved = None;
+
+        if is_unsaved && edit.input.value().trim().is_empty() {
+            self.drop_current(tree);
+            self.mode = Mode::Normal;
+            return false;
+        }
 
         if let Err(e) = self.save_edit(&edit) {
             self.notify(e, Level::Error);
@@ -635,6 +647,26 @@ impl App {
 
         self.mode = Mode::Normal;
         self.refresh_all();
+        true
+    }
+
+    /// Remove the highlighted item without confirmation, highlighting the one above
+    fn drop_current(&mut self, tree: TreeRef) {
+        let state = self.tree_mut(tree);
+        let index = state.highlighted.unwrap_or(0);
+        let Some(item) = state.current() else { return };
+
+        self.expanded.remove(&item);
+        if let Err(e) = self.db.delete(item) {
+            self.notify(e, Level::Error);
+        }
+        self.refresh_all();
+
+        let state = self.tree_mut(tree);
+        let index = if state.rows.is_empty() { None } else { Some(index.saturating_sub(1)) };
+        state.clamp(index);
+        let highlighted = state.highlighted;
+        self.set_highlight(tree, highlighted);
     }
 
     fn set_filter(&mut self, tree: TreeRef, filter: String) {
@@ -649,6 +681,7 @@ impl App {
     // Node operations
 
     fn start_editing_new_node(&mut self, tree: TreeRef, item: Item) -> Result<()> {
+        self.tree_mut(tree).unsaved = Some(item);
         self.highlight_item(tree, item);
         self.start_edit(tree, Field::Description)
     }
