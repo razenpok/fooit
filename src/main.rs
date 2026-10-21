@@ -145,6 +145,17 @@ fn run(mut app: app::App) -> std::io::Result<()> {
     for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, Arc::clone(&stop))?;
     }
+    let resized = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGWINCH, Arc::clone(&resized))?;
+
+    // crossterm reads from stdin when it is a terminal, otherwise from /dev/tty
+    let dev_tty;
+    let tty = if unsafe { libc::isatty(libc::STDIN_FILENO) } == 1 {
+        libc::STDIN_FILENO
+    } else {
+        dev_tty = std::fs::File::open("/dev/tty")?;
+        std::os::fd::AsRawFd::as_raw_fd(&dev_tty)
+    };
 
     let result = (|| -> std::io::Result<()> {
         // redraw only after an event, an outside change, or each minute so todos turn overdue
@@ -170,15 +181,23 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                 return Ok(());
             }
 
-            if event::poll(Duration::from_millis(200))? {
-                match event::read()? {
-                    Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
-                    Event::Paste(text) => app.on_paste(&text),
-                    Event::Mouse(mouse) => app.on_mouse(mouse),
-                    _ => {}
+            match wait_for_input(tty, Duration::from_millis(200)) {
+                Input::Gone => return Ok(()),
+                Input::None => {}
+                Input::Ready => {
+                    while event::poll(Duration::ZERO)? {
+                        match event::read()? {
+                            Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
+                            Event::Paste(text) => app.on_paste(&text),
+                            Event::Mouse(mouse) => app.on_mouse(mouse),
+                            _ => {}
+                        }
+                        dirty = true;
+                    }
                 }
-                dirty = true;
             }
+            // the drawing picks up the new size
+            dirty |= resized.swap(false, Ordering::Relaxed);
             dirty |= app.tick();
         }
     })();
@@ -186,9 +205,42 @@ fn run(mut app: app::App) -> std::io::Result<()> {
     // the terminal may be gone already, so this comes before anything is written to it
     app.close();
 
-    let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
-    ratatui::restore();
+    // not ratatui::restore, which panics reporting a failure to a terminal that is gone
+    let _ = execute!(
+        std::io::stdout(),
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        ratatui::crossterm::terminal::LeaveAlternateScreen,
+        ratatui::crossterm::cursor::Show
+    );
+    let _ = ratatui::crossterm::terminal::disable_raw_mode();
+    // its drop would show the cursor again, and panic too when that fails
+    std::mem::forget(terminal);
     result
+}
+
+enum Input {
+    Ready,
+    None,
+    Gone,
+}
+
+/// Wait up to a timeout for terminal input. crossterm keeps re-reading a terminal that hung up,
+/// at full speed and without ever returning, so it only gets to read once there is real input
+fn wait_for_input(tty: i32, timeout: Duration) -> Input {
+    let mut fd = libc::pollfd { fd: tty, events: libc::POLLIN, revents: 0 };
+    let ready = unsafe { libc::poll(&mut fd, 1, timeout.as_millis() as i32) };
+    if ready <= 0 {
+        // timed out, or interrupted by a signal
+        return Input::None;
+    }
+    if fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+        return Input::Gone;
+    }
+    // readable with nothing to read is the end of input
+    let mut available: libc::c_int = 0;
+    let result = unsafe { libc::ioctl(tty, libc::FIONREAD, &mut available) };
+    if result == 0 && available > 0 { Input::Ready } else { Input::Gone }
 }
 
 #[cfg(test)]
