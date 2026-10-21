@@ -41,6 +41,8 @@ topmost workspace.
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |
+| `H` | show / hide completed todos (hidden on start) |
+| `X` | remove the completed todos of the workspace (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |
 | `/` | search |
 | `ctrl+s` | sort siblings |

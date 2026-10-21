@@ -153,6 +153,7 @@ fn scrolls_with_wrapped_rows() {
     let path = std::env::temp_dir().join(format!("fooit-viewport-{}.db", std::process::id()));
     seed(&path, 50, 0); // 200 todos in each workspace
     let mut app = app::App::new(db::Db::open(&path).unwrap());
+    app.show_completed = true;
     let mut term = Terminal::new(TestBackend::new(60, 12)).unwrap(); // narrow, so descriptions wrap
     press(&mut app, KeyCode::Char('j'));
     press(&mut app, KeyCode::Tab);

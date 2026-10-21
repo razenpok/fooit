@@ -331,6 +331,51 @@ mod scenario {
     }
 
     #[test]
+    fn completed_todos_are_hidden_and_removed() {
+        let mut app = temp_app("completed");
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "Other");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "elsewhere");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "c");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "k");
+        key(&mut app, KeyCode::Tab);
+        for d in ["done", "keep"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "Anested done");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "nested keep");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "kc");
+        assert_eq!(descriptions(&app), ["done", "keep", "nested keep"]);
+        press(&mut app, "ggc");
+        assert_eq!(descriptions(&app), ["keep", "nested keep"]);
+
+        press(&mut app, "H");
+        assert_eq!(descriptions(&app), ["done", "keep", "nested done", "nested keep"]);
+
+        press(&mut app, "X");
+        assert_eq!(app.mode, app::Mode::Confirm);
+        press(&mut app, "y");
+        assert_eq!(descriptions(&app), ["keep", "nested keep"]);
+
+        // the other workspace keeps its completed todo
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "j");
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(descriptions(&app), ["elsewhere"]);
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));
@@ -382,7 +427,11 @@ mod scenario {
         let s = screen(&mut term, &mut app, "indented");
         assert!(s.contains("Second todo"));
         press(&mut app, "c");
-        screen(&mut term, &mut app, "child completed => parent completed");
+        let s = screen(&mut term, &mut app, "child completed => parent completed, both hidden");
+        assert!(!s.contains("Second todo") && !s.contains("Write the port"));
+        press(&mut app, "HG");
+        let s = screen(&mut term, &mut app, "completed shown");
+        assert!(s.contains("Second todo") && s.contains("Write the port"));
         press(&mut app, "<<");
         screen(&mut term, &mut app, "dedented");
 

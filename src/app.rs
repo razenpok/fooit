@@ -160,6 +160,7 @@ impl TreeState {
 
 pub enum ConfirmAction {
     Remove { tree: TreeRef, item: Item },
+    RemoveCompleted { ws: i64 },
     Discard { tree: TreeRef },
 }
 
@@ -193,6 +194,7 @@ pub struct App {
     pub mode: Mode,
     /// Items start expanded, so only the collapsed ones are tracked
     pub collapsed: HashSet<Item>,
+    pub show_completed: bool,
     pub keys: KeyManager,
     pub bar: Bar,
     pub show_confirm: bool,
@@ -217,6 +219,7 @@ impl App {
             focus: Focus::Workspaces,
             mode: Mode::Normal,
             collapsed: HashSet::new(),
+            show_completed: false,
             keys: KeyManager::with_defaults(),
             bar: Bar::Status,
             show_confirm: true,
@@ -293,6 +296,9 @@ impl App {
         let mut rows = vec![];
         fn walk(app: &App, parent: Parent, todos: bool, depth: usize, filter: &str, rows: &mut Vec<Row>) {
             for child in app.db.children(parent, todos) {
+                if !app.show_completed && app.is_completed(child) {
+                    continue;
+                }
                 let enabled = app.db.description(child).contains(filter);
                 rows.push(Row { item: child, depth, enabled });
                 if !app.collapsed.contains(&child) || !filter.is_empty() {
@@ -505,6 +511,7 @@ impl App {
                 if !cancel {
                     match confirm.action {
                         ConfirmAction::Remove { tree, item } => self.remove(tree, item),
+                        ConfirmAction::RemoveCompleted { ws } => self.remove_completed(ws),
                         ConfirmAction::Discard { tree } => {
                             self.stop_edit(tree, true);
                         }
@@ -813,6 +820,32 @@ impl App {
         self.refresh_all();
     }
 
+    fn is_completed(&self, item: Item) -> bool {
+        match item {
+            Item::Todo(id) => self.db.todo(id).is_some_and(|t| !t.pending),
+            Item::Ws(_) => false,
+        }
+    }
+
+    /// The completed todos beneath a parent, leaving out those inside another completed todo
+    fn completed_todos(&self, parent: Parent) -> Vec<Item> {
+        let mut found = vec![];
+        for child in self.db.children(parent, true) {
+            if self.is_completed(child) {
+                found.push(child);
+            } else {
+                found.extend(self.completed_todos(child.as_parent()));
+            }
+        }
+        found
+    }
+
+    fn remove_completed(&mut self, ws: i64) {
+        for item in self.completed_todos(Parent::Ws(ws)) {
+            self.remove(TreeRef::Todos(ws), item);
+        }
+    }
+
     fn toggle_expand_item(&mut self, item: Item) {
         if !self.collapsed.remove(&item) {
             self.collapsed.insert(item);
@@ -1015,6 +1048,33 @@ impl App {
                 }
                 self.db.update_todo(todo)?;
                 self.refresh_all();
+            }
+            Action::ToggleShowCompleted => {
+                self.show_completed = !self.show_completed;
+                self.refresh_all();
+                let verb = if self.show_completed { "Showing" } else { "Hiding" };
+                self.notify(format!("{} completed todos", verb), Level::Info);
+            }
+            Action::RemoveCompleted => {
+                let ws = self.current_ws().ok_or_else(|| NO_NODE.to_string())?;
+                let count = self.completed_todos(Parent::Ws(ws)).len();
+                if count == 0 {
+                    self.notify("No completed todos", Level::Info);
+                    return Ok(());
+                }
+                let message = format!("Remove {} completed todo{}? [y/N]", count, if count == 1 { "" } else { "s" });
+                let action = ConfirmAction::RemoveCompleted { ws };
+                if self.show_confirm {
+                    self.confirm(Confirm {
+                        action,
+                        message,
+                        confirmed: Some(("The completed todos were deleted".into(), Level::Error)),
+                        cancelled: Some(("The completed todos were retained".into(), Level::Info)),
+                        cancel_mode: Mode::Normal,
+                    });
+                } else {
+                    self.remove_completed(ws);
+                }
             }
             Action::StartSearch => {
                 self.current_item(tree)?;
