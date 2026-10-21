@@ -549,6 +549,19 @@ impl App {
                 self.stop_edit(tree, false);
                 Ok(())
             }
+            ("up" | "down", _) => {
+                // pick the target first, the edited item may be dropped when it stays empty
+                let target = self.move_target(tree, key == "down");
+                self.stop_edit(tree, false);
+                if let Some(item) = target {
+                    self.highlight_item(tree, item);
+                }
+                Ok(())
+            }
+            ("tab", _) => {
+                self.stop_edit(tree, false);
+                self.run(Action::SwitchFocus)
+            }
             _ => {
                 if let Some(edit) = self.tree_mut(tree).edit.as_mut() {
                     edit.input.keypress(key);
@@ -872,6 +885,16 @@ impl App {
     // ------------------------------------------------------------------
     // Actions
 
+    /// The item moving the cursor up or down lands on, None at the ends of the list
+    fn move_target(&mut self, tree: TreeRef, down: bool) -> Option<Item> {
+        let state = self.tree_mut(tree);
+        let len = state.rows.len();
+        if len == 0 || (down && state.highlighted == Some(len - 1)) || (!down && state.highlighted == Some(0)) {
+            return None;
+        }
+        state.next_enabled(down).map(|i| state.rows[i].item)
+    }
+
     fn run(&mut self, action: Action) -> Result<()> {
         let tree = self.focused_tree();
 
@@ -886,17 +909,9 @@ impl App {
                 Focus::Todos => self.focus = Focus::Workspaces,
             },
             Action::MoveDown | Action::MoveUp => {
-                let down = action == Action::MoveDown;
-                let state = self.tree_mut(tree);
-                let len = state.rows.len();
-                if len == 0
-                    || (down && state.highlighted == Some(len - 1))
-                    || (!down && state.highlighted == Some(0))
-                {
-                    return Ok(());
+                if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
+                    self.highlight_item(tree, item);
                 }
-                let next = state.next_enabled(down);
-                self.set_highlight(tree, next);
             }
             Action::GoToTop => {
                 let index = self.tree_mut(tree).first_enabled();

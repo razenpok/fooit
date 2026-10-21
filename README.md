@@ -43,7 +43,8 @@ fooit [--db PATH] [-v] [config-loc]
 | `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
-`escape` discards, asking first if something changed.
+`escape` discards, asking first if something changed. The up and down arrows and
+`tab` save the edit and then move the cursor or switch lists.
 
 ## Differences from dooit
 

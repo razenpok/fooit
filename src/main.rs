@@ -171,6 +171,55 @@ mod scenario {
         out
     }
 
+    fn temp_app(name: &str) -> app::App {
+        let p = std::env::temp_dir().join(format!("fooit-{}-{}.db", name, std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        app::App::new(db::Db::open(&p).unwrap())
+    }
+
+    fn descriptions(app: &app::App) -> Vec<String> {
+        let tree = app.tree(app.focused_tree()).unwrap();
+        tree.rows.iter().map(|r| app.db.description(r.item).to_string()).collect()
+    }
+
+    fn highlighted(app: &app::App) -> String {
+        let tree = app.tree(app.focused_tree()).unwrap();
+        app.db.description(tree.current().unwrap()).to_string()
+    }
+
+    #[test]
+    fn arrows_and_tab_finish_editing() {
+        let mut app = temp_app("edit-nav");
+        press(&mut app, "a");
+        press(&mut app, "Work");
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(app.mode, app::Mode::Insert);
+        assert!(app.focused_tree().is_todos());
+
+        press(&mut app, "one");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "two");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "three");
+        key(&mut app, KeyCode::Up);
+        assert_eq!(app.mode, app::Mode::Normal);
+        assert_eq!(highlighted(&app), "two");
+
+        // an empty new item is dropped and the cursor lands where the arrow points
+        press(&mut app, "a");
+        key(&mut app, KeyCode::Down);
+        assert_eq!(descriptions(&app), ["one", "two", "three"]);
+        assert_eq!(highlighted(&app), "three");
+
+        press(&mut app, "i");
+        press(&mut app, "!");
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(descriptions(&app), ["Work"]);
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(descriptions(&app), ["one", "two", "three!"]);
+    }
+
     #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
