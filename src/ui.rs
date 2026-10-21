@@ -168,7 +168,7 @@ fn truncate(text: &str, width: usize) -> String {
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let [main, bar] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
-    let [left, right] = Layout::horizontal([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)]).areas(main);
+    let [left, right] = Layout::horizontal([Constraint::Fill(2), Constraint::Fill(8)]).areas(main);
 
     draw_tree(f.buffer_mut(), app, TreeRef::Workspaces, left);
     match app.current_ws() {
