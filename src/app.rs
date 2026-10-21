@@ -1167,7 +1167,8 @@ impl App {
     // ------------------------------------------------------------------
     // Actions
 
-    /// The item moving the cursor up or down lands on, None at the ends of the list
+    /// The item moving the cursor up or down lands on, wrapping around the ends of the list;
+    /// moving between top-level items stops at the ends
     fn move_target(&mut self, tree: TreeRef, down: bool, top_level: bool) -> Option<Item> {
         let state = self.tree_mut(tree);
         if top_level {
@@ -1180,8 +1181,7 @@ impl App {
             };
             return index.map(|i| state.rows[i].item);
         }
-        let len = state.rows.len();
-        if len == 0 || (down && state.highlighted == Some(len - 1)) || (!down && state.highlighted == Some(0)) {
+        if state.rows.is_empty() {
             return None;
         }
         state.next_enabled(down).map(|i| state.rows[i].item)

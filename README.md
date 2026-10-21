@@ -29,7 +29,7 @@ topmost workspace.
 | key | action |
 | --- | --- |
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
-| `j` / `k`, down / up | move down / up |
+| `j` / `k`, down / up | move down / up (wrapping around the ends) |
 | shift+down / shift+up | next / previous top-level item |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |

@@ -551,6 +551,29 @@ mod scenario {
     }
 
     #[test]
+    fn up_and_down_wrap_around() {
+        let mut app = temp_app("wrap");
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        for d in ["one", "two"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(highlighted(&app), "two");
+        press(&mut app, "j");
+        assert_eq!(highlighted(&app), "one");
+        key(&mut app, KeyCode::Up);
+        assert_eq!(highlighted(&app), "two");
+
+        // also when leaving an edit with the arrows
+        press(&mut app, "i");
+        key(&mut app, KeyCode::Down);
+        assert_eq!(app.mode, app::Mode::Normal);
+        assert_eq!(highlighted(&app), "one");
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));
