@@ -49,6 +49,11 @@ topmost workspace.
 | `?` | help |
 | `q`, `ctrl+q`, `ctrl+c` | quit |
 
+With the mouse, clicking a todo's status toggles its completion, clicking a row
+highlights it, the wheel moves the cursor, and dragging a row moves it along with its
+children. Where it lands follows the pointer, and moving sideways while dragging
+nests it deeper or shallower, as far as the rows around it allow.
+
 While editing, `enter` saves (and on a description, starts a new sibling) and
 `escape` discards, asking first if something changed. The up and down arrows (also
 with shift) and `tab` save the edit and then move the cursor or switch lists.

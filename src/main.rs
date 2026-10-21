@@ -9,7 +9,9 @@ mod bench;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
-use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind};
+use ratatui::crossterm::event::{
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event, KeyEventKind,
+};
 use ratatui::crossterm::execute;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -133,7 +135,7 @@ fn main() {
 
 fn run(mut app: app::App) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
-    execute!(std::io::stdout(), EnableBracketedPaste)?;
+    execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
     let result = (|| -> std::io::Result<()> {
         // redraw only after an event, an outside change, or when the status bar clock moves on
@@ -154,6 +156,7 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                 match event::read()? {
                     Event::Key(key) if key.kind != KeyEventKind::Release => app.on_key(key),
                     Event::Paste(text) => app.on_paste(&text),
+                    Event::Mouse(mouse) => app.on_mouse(mouse),
                     _ => {}
                 }
                 dirty = true;
@@ -162,7 +165,7 @@ fn run(mut app: app::App) -> std::io::Result<()> {
         }
     })();
 
-    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -373,6 +376,88 @@ mod scenario {
         key(&mut app, KeyCode::Tab);
         key(&mut app, KeyCode::Esc);
         assert_eq!(descriptions(&app), ["elsewhere"]);
+    }
+
+    fn depths(app: &app::App) -> Vec<(String, usize)> {
+        let tree = app.tree(app.focused_tree()).unwrap();
+        tree.rows.iter().map(|r| (app.db.description(r.item).to_string(), r.depth)).collect()
+    }
+
+    #[test]
+    fn mouse_completes_and_drags() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+
+        let mut app = temp_app("mouse");
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        for d in ["A", "B", "C"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+
+        // (x of a depth's status column, y of a row) as drawn
+        let at = |term: &mut Terminal<TestBackend>, app: &mut app::App, name: &str, depth: usize| {
+            screen(term, app, name);
+            let view = &app.tree(app.focused_tree()).unwrap().view;
+            let index = descriptions(app).iter().position(|d| d == name).unwrap();
+            let (_, top, _) = view.rows.iter().find(|(i, _, _)| *i == index).unwrap();
+            (view.area.x + app::indent(depth) as u16 + 1, *top)
+        };
+        let mouse = |app: &mut app::App, kind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+        };
+        // grabbed by the description, a few columns right of the status
+        let drag = |term: &mut Terminal<TestBackend>, app: &mut app::App, from: (u16, u16), to: (u16, u16)| {
+            let (from, to) = ((from.0 + 4, from.1), (to.0 + 4, to.1));
+            mouse(app, MouseEventKind::Down(MouseButton::Left), from);
+            screen(term, app, "drag start");
+            mouse(app, MouseEventKind::Drag(MouseButton::Left), to);
+            screen(term, app, "dragging");
+            mouse(app, MouseEventKind::Up(MouseButton::Left), to);
+        };
+
+        // clicking the status completes, which hides the todo
+        let b = at(&mut term, &mut app, "B", 0);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), b);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), b);
+        assert_eq!(descriptions(&app), ["A", "C"]);
+        press(&mut app, "H");
+        let b = at(&mut term, &mut app, "B", 0);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), b);
+        assert_eq!(descriptions(&app), ["A", "B", "C"]);
+        press(&mut app, "H");
+
+        // dragging C onto A puts it first
+        let (c, a) = (at(&mut term, &mut app, "C", 0), at(&mut term, &mut app, "A", 0));
+        drag(&mut term, &mut app, c, a);
+        assert_eq!(depths(&app), [("C".into(), 0), ("A".into(), 0), ("B".into(), 0)]);
+
+        // dragging B up onto A and to the right nests it under C
+        let (b, a) = (at(&mut term, &mut app, "B", 0), at(&mut term, &mut app, "A", 0));
+        drag(&mut term, &mut app, b, (a.0 + 4, a.1));
+        assert_eq!(depths(&app), [("C".into(), 0), ("B".into(), 1), ("A".into(), 0)]);
+
+        // C takes its child along when dropped below A
+        let (c, a) = (at(&mut term, &mut app, "C", 0), at(&mut term, &mut app, "A", 0));
+        drag(&mut term, &mut app, c, a);
+        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
+
+        // moving only sideways changes the nesting in place
+        let b = at(&mut term, &mut app, "B", 1);
+        drag(&mut term, &mut app, b, (b.0 - 4, b.1));
+        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 0)]);
+        let b = at(&mut term, &mut app, "B", 0);
+        drag(&mut term, &mut app, b, (b.0 + 8, b.1));
+        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
+
+        // a plain click only highlights
+        let a = at(&mut term, &mut app, "A", 0);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (a.0 + 4, a.1));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (a.0 + 4, a.1));
+        assert_eq!(highlighted(&app), "A");
+        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
     }
 
     #[test]

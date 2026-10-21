@@ -4,7 +4,8 @@ use crate::dates;
 use crate::db::{Db, Item, Parent, SortField};
 use crate::input::Input;
 use crate::keys::{self, Action, KeyManager, KeyMatch};
-use ratatui::crossterm::event::KeyEvent;
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::{Position, Rect};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -90,6 +91,36 @@ pub struct Row {
     pub enabled: bool,
 }
 
+/// Columns a row is indented by at a depth
+pub fn indent(depth: usize) -> usize {
+    if depth > 0 { 2 * depth + 2 } else { 0 }
+}
+
+/// Where a tree was last drawn, for finding what the mouse points at
+#[derive(Default)]
+pub struct View {
+    pub area: Rect,
+    /// Row index, first line and number of lines of each row on screen
+    pub rows: Vec<(usize, u16, u16)>,
+    /// Width of the status column, padding included
+    pub status_width: u16,
+}
+
+/// A row being dragged with the mouse
+pub struct Drag {
+    pub tree: TreeRef,
+    pub item: Item,
+    pub start: (u16, u16),
+    pub target: Option<DropTarget>,
+}
+
+/// Where a dragged row lands: after the row `above` (or first when None), at a depth
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DropTarget {
+    pub above: Option<usize>,
+    pub depth: usize,
+}
+
 pub struct Edit {
     pub item: Item,
     pub field: Field,
@@ -106,6 +137,7 @@ pub struct TreeState {
     pub unsaved: Option<Item>,
     /// Per-row column widths (by layout position, ignoring any edit) and the db generation they were measured at
     pub widths: Option<(u64, Vec<Vec<usize>>)>,
+    pub view: View,
 }
 
 impl TreeState {
@@ -195,6 +227,7 @@ pub struct App {
     /// Items start expanded, so only the collapsed ones are tracked
     pub collapsed: HashSet<Item>,
     pub show_completed: bool,
+    pub drag: Option<Drag>,
     pub keys: KeyManager,
     pub bar: Bar,
     pub show_confirm: bool,
@@ -220,6 +253,7 @@ impl App {
             mode: Mode::Normal,
             collapsed: HashSet::new(),
             show_completed: false,
+            drag: None,
             keys: KeyManager::with_defaults(),
             bar: Bar::Status,
             show_confirm: true,
@@ -469,6 +503,148 @@ impl App {
                 }
             }
         }
+    }
+
+    pub fn on_mouse(&mut self, event: MouseEvent) {
+        if self.help.is_some() || self.bar_focused() {
+            return;
+        }
+        let (x, y) = (event.column, event.row);
+        let result = match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.mouse_down(x, y),
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.mouse_drag(x, y);
+                Ok(())
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.mouse_up(),
+            MouseEventKind::ScrollDown if self.mode == Mode::Normal => self.run(Action::MoveDown),
+            MouseEventKind::ScrollUp if self.mode == Mode::Normal => self.run(Action::MoveUp),
+            _ => Ok(()),
+        };
+        if let Err(e) = result {
+            self.notify(e, Level::Error);
+        }
+    }
+
+    /// The shown tree and row under a screen position
+    fn row_at(&self, x: u16, y: u16) -> Option<(TreeRef, usize)> {
+        let mut trees = vec![TreeRef::Workspaces];
+        trees.extend(self.current_ws().map(TreeRef::Todos));
+        trees.into_iter().find_map(|tree| {
+            let view = &self.tree(tree)?.view;
+            if !view.area.contains(Position::new(x, y)) {
+                return None;
+            }
+            let (index, _, _) = view.rows.iter().find(|(_, top, height)| (*top..top + height).contains(&y))?;
+            Some((tree, *index))
+        })
+    }
+
+    fn mouse_down(&mut self, x: u16, y: u16) -> Result<()> {
+        let Some((tree, index)) = self.row_at(x, y) else { return Ok(()) };
+        let item = self.tree(tree).unwrap().rows[index].item;
+        let depth = self.tree(tree).unwrap().rows[index].depth;
+
+        // finish an edit first, like the arrows do; an empty new item disappears
+        let focused = self.focused_tree();
+        if self.tree(focused).and_then(|t| t.editing()).is_some() {
+            self.stop_edit(focused, false);
+            if !self.db.exists(item) {
+                return Ok(());
+            }
+        }
+
+        self.focus = if tree.is_todos() { Focus::Todos } else { Focus::Workspaces };
+        self.highlight_item(tree, item);
+
+        let view = &self.tree(tree).unwrap().view;
+        let status = view.area.x + indent(depth) as u16;
+        if tree.is_todos() && (status..status + view.status_width).contains(&x) {
+            return self.run(Action::ToggleComplete);
+        }
+
+        self.drag = Some(Drag { tree, item, start: (x, y), target: None });
+        Ok(())
+    }
+
+    fn mouse_drag(&mut self, x: u16, y: u16) {
+        let Some(drag) = &self.drag else { return };
+        if drag.target.is_none() && drag.start == (x, y) {
+            return;
+        }
+        let target = self.drop_target(drag, x, y);
+        if let Some(drag) = self.drag.as_mut() {
+            drag.target = target;
+        }
+    }
+
+    fn mouse_up(&mut self) -> Result<()> {
+        let Some(Drag { tree, item, target: Some(target), .. }) = self.drag.take() else {
+            return Ok(());
+        };
+        self.drop_item(tree, item, target)
+    }
+
+    /// The rows a dragged item takes along: itself and everything shown beneath it
+    fn dragged_rows(state: &TreeState, item: Item) -> Option<std::ops::Range<usize>> {
+        let from = state.index_of(item)?;
+        let depth = state.rows[from].depth;
+        let len = state.rows[from + 1..].iter().take_while(|r| r.depth > depth).count();
+        Some(from..from + 1 + len)
+    }
+
+    /// The gap the pointer is over, and the depth the horizontal movement asks for, limited to
+    /// what fits between the rows around the gap
+    fn drop_target(&self, drag: &Drag, x: u16, y: u16) -> Option<DropTarget> {
+        let state = self.tree(drag.tree)?;
+        let rows = &state.rows;
+        let dragged = Self::dragged_rows(state, drag.item)?;
+
+        let pointed = state.view.rows.iter().find(|(_, top, height)| y < top + height).or(state.view.rows.last())?.0;
+        let (above, below) = if pointed < dragged.start {
+            (pointed.checked_sub(1), Some(pointed))
+        } else if pointed >= dragged.end {
+            (Some(pointed), Some(pointed + 1).filter(|b| *b < rows.len()))
+        } else {
+            (dragged.start.checked_sub(1), Some(dragged.end).filter(|b| *b < rows.len()))
+        };
+
+        let max = above.map_or(0, |a| rows[a].depth + 1);
+        let min = below.map_or(0, |b| rows[b].depth).min(max);
+        let wanted = indent(rows[dragged.start].depth) as i32 + x as i32 - drag.start.0 as i32;
+        let depth = (min..=max).min_by_key(|d| (indent(*d) as i32 - wanted).abs()).unwrap_or(min);
+        Some(DropTarget { above, depth })
+    }
+
+    fn drop_item(&mut self, tree: TreeRef, item: Item, target: DropTarget) -> Result<()> {
+        let state = self.tree(tree).ok_or(NO_NODE)?;
+        let rows = &state.rows;
+        let dragged = Self::dragged_rows(state, item).ok_or(NO_NODE)?;
+
+        let opened = target.above.filter(|a| target.depth > rows[*a].depth).map(|a| rows[a].item);
+        let (parent, after) = match target.above {
+            None => (self.tree_root(tree).ok_or(NO_NODE)?, None),
+            Some(a) if target.depth > rows[a].depth => (rows[a].item.as_parent(), None),
+            Some(a) => {
+                // the row at the target depth that `above` sits in
+                let anchor = (0..=a)
+                    .rev()
+                    .filter(|i| !dragged.contains(i))
+                    .find(|i| rows[*i].depth <= target.depth)
+                    .map(|i| rows[i].item)
+                    .ok_or(NO_NODE)?;
+                (self.db.parent_of(anchor).ok_or(NO_NODE)?, Some(anchor))
+            }
+        };
+
+        // a new parent opens up to show the dropped item
+        if let Some(opened) = opened {
+            self.collapsed.remove(&opened);
+        }
+        self.db.move_to(item, parent, after)?;
+        self.refresh_all();
+        self.highlight_item(tree, item);
+        Ok(())
     }
 
     fn bar_keypress(&mut self, key: &str) {

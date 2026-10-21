@@ -1,6 +1,6 @@
 //! Rendering, matching dooit's default theme and layout
 
-use crate::app::{layout, App, Bar, Field, Focus, Level, Mode, Row, TreeRef};
+use crate::app::{indent, layout, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -299,7 +299,7 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
         .filter(|(f, _)| *f != Field::Description)
         .map(|(_, w)| w + 2)
         .sum::<usize>()
-        + if row.depth > 0 { 2 * row.depth + 2 } else { 0 };
+        + indent(row.depth);
     let description_width = total.saturating_sub(fixed + 2).max(1);
 
     let mut cells = vec![];
@@ -371,6 +371,7 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
     block.render(area, buf);
 
     let rows = app.tree_mut(tree).rows.clone();
+    app.tree_mut(tree).view = View { area: inner, ..View::default() };
     if rows.is_empty() {
         let y = inner.y + inner.height / 2;
         if inner.height > 0 {
@@ -417,29 +418,42 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
     }
     app.tree_mut(tree).offset = offset;
 
+    // the rows being dragged are dimmed
+    let drag = app.drag.as_ref().filter(|d| d.tree == tree);
+    let dragged = drag.and_then(|d| {
+        let from = rows.iter().position(|r| r.item == d.item)?;
+        let len = rows[from + 1..].iter().take_while(|r| r.depth > rows[from].depth).count();
+        Some(from..from + 1 + len)
+    });
+    let target = drag.and_then(|d| d.target);
+
+    let mut shown = vec![];
     let mut y = inner.y;
-    for index in offset..rows.len() {
+    'rows: for index in offset..rows.len() {
         if y >= inner.bottom() {
-            return;
+            break;
         }
         let lines = lines_of(app, index);
         let row = &rows[index];
+        let dimmed = !row.enabled || dragged.as_ref().is_some_and(|d| d.contains(&index));
         let mut style = Style::new().bg(BG1).fg(FG3);
-        if !row.enabled {
+        if dimmed {
             style = style.fg(DISABLED);
         }
         if highlighted == Some(index) {
             style = style.bg(if focused { HIGHLIGHT_FOCUSED } else { BG3 });
         }
 
+        let top = y;
         for line in lines {
             if y >= inner.bottom() {
-                return;
+                shown.push((index, top, y - top));
+                break 'rows;
             }
             let rect = Rect::new(inner.x, y, inner.width, 1);
             buf.set_style(rect, style);
             let mut line = line.clone();
-            if !row.enabled {
+            if dimmed {
                 for span in &mut line.spans {
                     span.style = span.style.fg(DISABLED);
                 }
@@ -447,7 +461,25 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
             buf.set_line(inner.x, y, &line, inner.width);
             y += 1;
         }
+        shown.push((index, top, y - top));
     }
+
+    // where a dragged row would land: a line under the row above it, at the depth it would get
+    if let Some(target) = target {
+        let line_y = match target.above {
+            Some(above) => shown.iter().find(|(i, _, _)| *i == above).map(|(_, top, h)| top + h - 1),
+            None => None,
+        }
+        .unwrap_or(inner.y.saturating_sub(1));
+        let x = inner.x + (indent(target.depth) as u16).min(inner.width.saturating_sub(1));
+        let rect = Rect::new(x, line_y, inner.right() - x, 1);
+        buf.set_style(rect, Style::new().add_modifier(Modifier::UNDERLINED).underline_color(RED));
+    }
+
+    let status_width = widths.iter().find(|(f, _)| *f == Field::Status).map_or(0, |(_, w)| *w as u16 + 2);
+    let view = &mut app.tree_mut(tree).view;
+    view.rows = shown;
+    view.status_width = status_width;
 }
 
 // ----------------------------------------------------------------------

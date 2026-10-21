@@ -799,6 +799,29 @@ impl Db {
         Ok(true)
     }
 
+    /// Move the item, with everything beneath it, under a parent: right after `after`, or first
+    pub fn move_to(&mut self, item: Item, parent: Parent, after: Option<Item>) -> Result<()> {
+        let Some(old_parent) = self.parent_of(item) else {
+            return Ok(());
+        };
+        let mut old_siblings = self.children(old_parent, item.is_todo());
+        old_siblings.retain(|s| *s != item);
+
+        let mut siblings = self.children(parent, item.is_todo());
+        siblings.retain(|s| *s != item);
+        let index = after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
+        siblings.insert(index, item);
+
+        let tx = self.conn.transaction().map_err(err)?;
+        Self::set_parent(&tx, item, parent)?;
+        if old_parent != parent {
+            Self::set_order(&tx, &old_siblings)?;
+        }
+        Self::set_order(&tx, &siblings)?;
+        tx.commit().map_err(err)?;
+        self.finish()
+    }
+
     pub fn sort_siblings(&mut self, item: Item, field: SortField) -> Result<()> {
         let mut siblings = self.siblings(item);
 
