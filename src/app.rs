@@ -834,6 +834,18 @@ impl App {
                 self.db.shift_down(item)?;
                 self.refresh_all();
             }
+            Action::Indent => {
+                let item = self.current_item(tree)?;
+                if let Some(parent) = self.db.indent(item)? {
+                    self.expanded.insert(parent);
+                }
+                self.refresh_all();
+            }
+            Action::Dedent => {
+                let item = self.current_item(tree)?;
+                self.db.dedent(item)?;
+                self.refresh_all();
+            }
             Action::RemoveNode => {
                 let item = self.current_item(tree)?;
                 if self.show_confirm {

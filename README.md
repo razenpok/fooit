@@ -1,7 +1,7 @@
 # fooit
 
-A Rust port of [dooit](https://github.com/dooit-org/dooit) 3.3.4, built with
-[ratatui](https://ratatui.rs).
+A Rust port of [dooit](https://github.com/dooit-org/dooit) (3.3.4 plus the local
+indent/dedent and editing changes), built with [ratatui](https://ratatui.rs).
 
 It uses the same SQLite schema and the same database file as dooit, so both can be
 used on the same todos:
@@ -31,6 +31,7 @@ fooit [--db PATH] [-v] [config-loc]
 | `a` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
+| `>>` / `<<` | indent / dedent |
 | `xx` | remove (asks for confirmation) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |

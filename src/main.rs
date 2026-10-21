@@ -202,9 +202,14 @@ mod scenario {
         let s = screen(&mut term, &mut app, "due + urgency");
         assert!(s.contains("2020-01-02 (10:30)") && s.contains("!3") && s.contains("!"));
 
-        // complete it
+        // indent the second todo under the first, then toggle completion of the child
+        press(&mut app, ">>");
+        let s = screen(&mut term, &mut app, "indented");
+        assert!(s.contains("Second todo"));
         press(&mut app, "c");
-        screen(&mut term, &mut app, "completed");
+        screen(&mut term, &mut app, "child completed => parent completed");
+        press(&mut app, "<<");
+        screen(&mut term, &mut app, "dedented");
 
         // unknown column
         press(&mut app, "r");

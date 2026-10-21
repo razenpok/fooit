@@ -19,6 +19,8 @@ pub enum Action {
     AddChild,
     ShiftDown,
     ShiftUp,
+    Indent,
+    Dedent,
     RemoveNode,
     CopyDescription,
     CopyModel,
@@ -52,6 +54,8 @@ impl Action {
             Action::AddChild => "Add a child to the highlighted item",
             Action::ShiftDown => "Shift the highlighted item down",
             Action::ShiftUp => "Shift the highlighted item up",
+            Action::Indent => "Make the highlighted item a child of the item above it",
+            Action::Dedent => "Move the highlighted item out of its parent",
             Action::RemoveNode => "Remove the highlighted item",
             Action::CopyDescription => "Copy the description of the focused item to the clipboard",
             Action::CopyModel => "Copy the current highlighted node to clipboard",
@@ -102,6 +106,8 @@ impl KeyManager {
             (&["A"], Action::AddChild),
             (&["J"], Action::ShiftDown),
             (&["K"], Action::ShiftUp),
+            (&[">>"], Action::Indent),
+            (&["<<"], Action::Dedent),
             (&["xx"], Action::RemoveNode),
             (&["y"], Action::CopyDescription),
             (&["Y"], Action::CopyModel),
@@ -220,6 +226,8 @@ mod tests {
         let mut km = KeyManager::with_defaults();
         assert!(matches!(km.register("g", true), KeyMatch::Multiple));
         assert!(matches!(km.register("g", true), KeyMatch::Found(Action::GoToTop)));
+        assert!(matches!(km.register("<", true), KeyMatch::Multiple));
+        assert!(matches!(km.register("<", true), KeyMatch::Found(Action::Dedent)));
         assert!(matches!(km.register("tab", true), KeyMatch::Found(Action::SwitchFocus)));
         assert!(matches!(km.register("x", true), KeyMatch::Multiple));
         assert!(matches!(km.register("q", true), KeyMatch::NoMatch));

@@ -427,6 +427,24 @@ impl Db {
         Ok(())
     }
 
+    fn set_parent(tx: &Transaction, item: Item, parent: Parent) -> Result<()> {
+        match (item, parent) {
+            (Item::Ws(id), Parent::Ws(p)) => tx
+                .execute("UPDATE workspace SET parent_workspace_id = ?1 WHERE id = ?2", params![p, id]),
+            (Item::Todo(id), Parent::Ws(p)) => tx.execute(
+                "UPDATE todo SET parent_workspace_id = ?1, parent_todo_id = NULL WHERE id = ?2",
+                params![p, id],
+            ),
+            (Item::Todo(id), Parent::Todo(p)) => tx.execute(
+                "UPDATE todo SET parent_workspace_id = NULL, parent_todo_id = ?1 WHERE id = ?2",
+                params![p, id],
+            ),
+            (Item::Ws(_), Parent::Todo(_)) => return Err("Cannot add a workspace to a todo".into()),
+        }
+        .map_err(err)?;
+        Ok(())
+    }
+
     fn insert_workspace_row(tx: &Transaction, w: &Workspace) -> Result<i64> {
         tx.execute(
             "INSERT INTO workspace (order_index, description, is_root, parent_workspace_id) VALUES (?1, ?2, ?3, ?4)",
@@ -728,6 +746,55 @@ impl Db {
         self.shift(item, false)
     }
 
+    /// Make the item the last child of its previous sibling
+    pub fn indent(&mut self, item: Item) -> Result<Option<Item>> {
+        let mut siblings = self.siblings(item);
+        let Some(index) = siblings.iter().position(|s| *s == item) else {
+            return Ok(None);
+        };
+        if index == 0 {
+            return Ok(None);
+        }
+
+        let new_parent = siblings[index - 1];
+        let mut new_siblings = self.children(new_parent.as_parent(), item.is_todo());
+        siblings.remove(index);
+        new_siblings.push(item);
+
+        let tx = self.conn.transaction().map_err(err)?;
+        Self::set_parent(&tx, item, new_parent.as_parent())?;
+        Self::set_order(&tx, &siblings)?;
+        Self::set_order(&tx, &new_siblings)?;
+        tx.commit().map_err(err)?;
+        self.finish()?;
+        Ok(Some(new_parent))
+    }
+
+    /// Move the item out of its parent, placing it right after the parent
+    pub fn dedent(&mut self, item: Item) -> Result<bool> {
+        let Some(parent) = self.same_kind_parent(item) else {
+            return Ok(false);
+        };
+        let Some(grandparent) = self.parent_of(parent) else {
+            return Ok(false);
+        };
+
+        let mut siblings = self.siblings(item);
+        siblings.retain(|s| *s != item);
+
+        let mut new_siblings = self.siblings(parent);
+        let parent_index = new_siblings.iter().position(|s| *s == parent).unwrap_or(0);
+        new_siblings.insert(parent_index + 1, item);
+
+        let tx = self.conn.transaction().map_err(err)?;
+        Self::set_parent(&tx, item, grandparent)?;
+        Self::set_order(&tx, &siblings)?;
+        Self::set_order(&tx, &new_siblings)?;
+        tx.commit().map_err(err)?;
+        self.finish()?;
+        Ok(true)
+    }
+
     pub fn sort_siblings(&mut self, item: Item, field: SortField) -> Result<()> {
         let mut siblings = self.siblings(item);
 
@@ -877,6 +944,14 @@ mod tests {
 
         db.shift_up(b).unwrap();
         assert_eq!(db.children(Parent::Ws(root), false), vec![a, b, c]);
+
+        assert_eq!(db.indent(b).unwrap(), Some(a));
+        assert_eq!(db.children(Parent::Ws(root), false), vec![a, c]);
+        assert_eq!(db.children(a.as_parent(), false), vec![b]);
+
+        assert!(db.dedent(b).unwrap());
+        assert_eq!(db.children(Parent::Ws(root), false), vec![a, b, c]);
+        assert!(!db.dedent(b).unwrap());
 
         let Item::Ws(aid) = a else { panic!() };
         let t1 = db.insert(Parent::Ws(aid), true, None).unwrap();
