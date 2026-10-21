@@ -104,6 +104,8 @@ pub struct TreeState {
     pub offset: usize,
     pub edit: Option<Edit>,
     pub unsaved: Option<Item>,
+    /// Per-row column widths (by layout position, ignoring any edit) and the db generation they were measured at
+    pub widths: Option<(u64, Vec<Vec<usize>>)>,
 }
 
 impl TreeState {
@@ -306,6 +308,7 @@ impl App {
             TreeRef::Todos(ws) => self.todo_trees.get_mut(&ws).unwrap(),
         };
         state.rows = rows;
+        state.widths = None;
         match highlighted_item.and_then(|item| state.index_of(item)) {
             Some(index) => state.highlighted = Some(index),
             None => state.clamp(highlighted_index),
@@ -386,10 +389,13 @@ impl App {
     // ------------------------------------------------------------------
     // Event handling
 
-    pub fn tick(&mut self) {
+    /// Expires notifications and picks up outside changes; returns whether anything visible changed
+    pub fn tick(&mut self) -> bool {
+        let mut changed = false;
         if let Bar::Notification { until, .. } = &self.bar {
             if Instant::now() >= *until {
                 self.bar = Bar::Status;
+                changed = true;
             }
         }
 
@@ -397,8 +403,10 @@ impl App {
             self.last_poll = Instant::now();
             if self.db.has_changed() {
                 self.refresh_all();
+                changed = true;
             }
         }
+        changed
     }
 
     pub fn on_paste(&mut self, text: &str) {

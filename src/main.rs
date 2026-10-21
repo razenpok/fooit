@@ -4,6 +4,8 @@ mod db;
 mod input;
 mod keys;
 mod ui;
+#[cfg(test)]
+mod bench;
 
 use clap::{Parser, Subcommand};
 use ratatui::crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind};
@@ -105,8 +107,16 @@ fn run(mut app: app::App) -> std::io::Result<()> {
     execute!(std::io::stdout(), EnableBracketedPaste)?;
 
     let result = (|| -> std::io::Result<()> {
+        // redraw only after an event, an outside change, or when the status bar clock moves on
+        let mut dirty = true;
+        let mut shown_second = 0;
         loop {
-            terminal.draw(|f| ui::draw(f, &mut app))?;
+            let second = chrono::Local::now().timestamp();
+            if dirty || second != shown_second {
+                terminal.draw(|f| ui::draw(f, &mut app))?;
+                dirty = false;
+                shown_second = second;
+            }
             if app.quit {
                 return Ok(());
             }
@@ -117,8 +127,9 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                     Event::Paste(text) => app.on_paste(&text),
                     _ => {}
                 }
+                dirty = true;
             }
-            app.tick();
+            dirty |= app.tick();
         }
     })();
 

@@ -162,6 +162,8 @@ pub struct Db {
     conn: Connection,
     path: PathBuf,
     last_modified: Option<SystemTime>,
+    /// Bumped on every (re)load, so caches derived from the data know when they are stale
+    pub generation: u64,
 
     pub workspaces: HashMap<i64, Workspace>,
     pub todos: HashMap<i64, Todo>,
@@ -208,6 +210,7 @@ impl Db {
             conn,
             path: path.to_path_buf(),
             last_modified: None,
+            generation: 0,
             workspaces: HashMap::new(),
             todos: HashMap::new(),
             ws_children: HashMap::new(),
@@ -316,6 +319,7 @@ impl Db {
         self.todos = todos;
         self.ws_children = ws_children;
         self.todo_children = todo_children;
+        self.generation += 1;
         Ok(())
     }
 

@@ -11,6 +11,7 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Widget};
 use ratatui::Frame;
+use std::collections::HashMap;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const fn hex(v: u32) -> Color {
@@ -241,20 +242,55 @@ fn cell_content(app: &App, tree: TreeRef, item: Item, field: Field) -> (Vec<Span
     (spans, false)
 }
 
-/// Column width shared by every row of a tree, like `ModelTree.get_column_width`
-fn column_width(app: &App, tree: TreeRef, rows: &[Row], field: Field) -> usize {
-    let editing = app.tree(tree).and_then(|t| t.editing());
-    rows.iter()
-        .map(|row| {
-            let value = match editing {
-                Some(e) if e.item == row.item && e.field == field => e.input.render(),
-                _ => app.edit_default(row.item, field),
-            };
-            let rendered = spans_width(&cell_content(app, tree, row.item, field).0);
-            (text_width(&value) + 1).max(rendered)
+/// Width one row needs for a field when it is not being edited (empty values show a 1-wide dash)
+fn plain_width(app: &App, item: Item, field: Field) -> usize {
+    let rendered = spans_width(&formatted(app, item, field)).max(1);
+    (text_width(&app.edit_default(item, field)) + 1).max(rendered)
+}
+
+/// Column widths shared by every row of a tree, like `ModelTree.get_column_width`. The per-row
+/// widths are cached until the rows or the data change; only the row being edited is re-measured
+fn column_widths(app: &mut App, tree: TreeRef, rows: &[Row]) -> Vec<(Field, usize)> {
+    let fields = layout(tree);
+    let generation = app.db.generation;
+    let fresh = matches!(app.tree(tree).and_then(|t| t.widths.as_ref()), Some((g, _)) if *g == generation);
+    if !fresh {
+        let measured = fields
+            .iter()
+            .map(|f| match f {
+                Field::Description => vec![],
+                _ => rows.iter().map(|r| plain_width(app, r.item, *f)).collect(),
+            })
+            .collect();
+        app.tree_mut(tree).widths = Some((generation, measured));
+    }
+
+    let app: &App = app;
+    let state = app.tree(tree).unwrap();
+    let editing = state.editing().map(|e| (e.item, e.field, e.input.render()));
+    let cached = &state.widths.as_ref().unwrap().1;
+    fields
+        .iter()
+        .zip(cached)
+        .map(|(field, per_row)| {
+            if *field == Field::Description {
+                return (*field, 0);
+            }
+            let width = rows
+                .iter()
+                .zip(per_row)
+                .map(|(row, width)| match &editing {
+                    Some((item, f, value)) if *item == row.item && f == field => {
+                        let rendered = spans_width(&cell_content(app, tree, row.item, *field).0);
+                        (text_width(value) + 1).max(rendered)
+                    }
+                    _ => *width,
+                })
+                .max()
+                .unwrap_or(1);
+            (*field, width)
         })
-        .max()
-        .unwrap_or(1)
+        .collect()
 }
 
 fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], total: usize) -> Vec<Line<'static>> {
@@ -346,34 +382,47 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
         return;
     }
 
-    let widths: Vec<(Field, usize)> = layout(tree)
-        .iter()
-        .map(|f| {
-            let w = if *f == Field::Description { 0 } else { column_width(app, tree, &rows, *f) };
-            (*f, w)
-        })
-        .collect();
+    let widths = column_widths(app, tree, &rows);
 
+    // only the rows that end up on screen are built
     let total = inner.width as usize;
-    let rendered: Vec<Vec<Line>> = rows.iter().map(|r| build_row(app, tree, r, &widths, total)).collect();
+    let mut built: HashMap<usize, Vec<Line<'static>>> = HashMap::new();
+    let mut lines_of = |app: &App, index: usize| -> Vec<Line<'static>> {
+        built
+            .entry(index)
+            .or_insert_with(|| build_row(app, tree, &rows[index], &widths, total))
+            .clone()
+    };
 
-    // keep the highlighted option in view
+    // keep the highlighted option in view: scroll down just enough for it to fit
     let height = inner.height as usize;
-    let state = app.tree_mut(tree);
+    let state = app.tree(tree).unwrap();
+    let highlighted = state.highlighted;
     let mut offset = state.offset.min(rows.len().saturating_sub(1));
-    if let Some(h) = state.highlighted {
+    if let Some(h) = highlighted {
         if h < offset {
             offset = h;
         }
-        while offset < h && rendered[offset..=h].iter().map(|l| l.len()).sum::<usize>() > height {
-            offset += 1;
+        let mut start = h;
+        let mut used = lines_of(app, h).len();
+        while start > offset {
+            let above = lines_of(app, start - 1).len();
+            if used + above > height {
+                break;
+            }
+            used += above;
+            start -= 1;
         }
+        offset = start;
     }
-    state.offset = offset;
-    let highlighted = state.highlighted;
+    app.tree_mut(tree).offset = offset;
 
     let mut y = inner.y;
-    for (index, lines) in rendered.iter().enumerate().skip(offset) {
+    for index in offset..rows.len() {
+        if y >= inner.bottom() {
+            return;
+        }
+        let lines = lines_of(app, index);
         let row = &rows[index];
         let mut style = Style::new().bg(BG1).fg(FG3);
         if !row.enabled {
