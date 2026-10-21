@@ -42,7 +42,8 @@ fooit [--db PATH] [-v] [config-loc]
 | `?` | help |
 | `ctrl+q`, `ctrl+c` | quit |
 
-While editing, `enter` or `escape` saves.
+While editing, `enter` saves (and on a description, starts a new sibling) and
+so does `escape`.
 
 ## Differences from dooit
 

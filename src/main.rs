@@ -174,12 +174,13 @@ mod scenario {
         press(&mut app, "j");
         screen(&mut term, &mut app, "first workspace selected");
 
-        // add a workspace, type its name and save it with enter
+        // add a workspace, type its name and confirm with enter (adds a sibling), escape drops it
         press(&mut app, "a");
         press(&mut app, "Scenario");
         let s = screen(&mut term, &mut app, "typing workspace");
         assert!(s.contains("Scenario|") && s.contains("INSERT"));
         key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
         let s = screen(&mut term, &mut app, "workspace added");
         assert!(s.contains("Scenario") && s.contains("NORMAL"));
 
@@ -187,9 +188,9 @@ mod scenario {
         key(&mut app, KeyCode::Tab);
         press(&mut app, "Write the port");
         key(&mut app, KeyCode::Enter);
-        press(&mut app, "a");
         press(&mut app, "Second todo");
         key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
         let s = screen(&mut term, &mut app, "todos added");
         assert!(s.contains("Write the port") && s.contains("Second todo"));
 

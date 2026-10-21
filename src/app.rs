@@ -516,15 +516,30 @@ impl App {
             return;
         };
 
-        match (key, field) {
+        let result = match (key, field) {
+            ("enter", Field::Description) => {
+                if self.stop_edit(tree)
+                    && self.current_item(tree).map(|i| !self.db.description(i).is_empty()).unwrap_or(false)
+                {
+                    self.add_sibling(tree)
+                } else {
+                    Ok(())
+                }
+            }
             ("escape" | "enter", _) => {
                 self.stop_edit(tree);
+                Ok(())
             }
             _ => {
                 if let Some(edit) = self.tree_mut(tree).edit.as_mut() {
                     edit.input.keypress(key);
                 }
+                Ok(())
             }
+        };
+
+        if let Err(e) = result {
+            self.notify(e, Level::Error);
         }
     }
 
