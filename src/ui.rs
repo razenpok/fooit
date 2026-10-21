@@ -450,10 +450,10 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
                 .collect();
             buf.set_line(area.x, area.y, &Line::from(spans), area.width);
         }
-        Bar::Confirm(_) => {
+        Bar::Confirm(confirm) => {
             let style = Style::new().bg(RED).fg(BG1).add_modifier(Modifier::BOLD);
             buf.set_style(area, style);
-            buf.set_stringn(area.x + 1, area.y, "Are you sure? [y/N]", area.width.saturating_sub(2) as usize, style);
+            buf.set_stringn(area.x + 1, area.y, &confirm.message, area.width.saturating_sub(2) as usize, style);
         }
     }
 }

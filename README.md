@@ -43,7 +43,7 @@ fooit [--db PATH] [-v] [config-loc]
 | `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
-so does `escape`.
+`escape` discards, asking first if something changed.
 
 ## Differences from dooit
 

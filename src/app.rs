@@ -158,10 +158,15 @@ impl TreeState {
 
 pub enum ConfirmAction {
     Remove { tree: TreeRef, item: Item },
+    Discard { tree: TreeRef },
 }
 
 pub struct Confirm {
     pub action: ConfirmAction,
+    pub message: String,
+    pub confirmed: Option<(String, Level)>,
+    pub cancelled: Option<(String, Level)>,
+    pub cancel_mode: Mode,
 }
 
 pub enum Bar {
@@ -491,14 +496,16 @@ impl App {
                 if !cancel {
                     match confirm.action {
                         ConfirmAction::Remove { tree, item } => self.remove(tree, item),
+                        ConfirmAction::Discard { tree } => {
+                            self.stop_edit(tree, true);
+                        }
                     }
                 }
-                self.mode = Mode::Normal;
+                self.mode = if cancel { confirm.cancel_mode } else { Mode::Normal };
 
-                if cancel {
-                    self.notify("The items were retained", Level::Info);
-                } else {
-                    self.notify("The items were deleted", Level::Error);
+                let notice = if cancel { confirm.cancelled } else { confirm.confirmed };
+                if let Some((message, level)) = notice {
+                    self.notify(message, level);
                 }
             }
             other => self.bar = other,
@@ -518,7 +525,7 @@ impl App {
 
         let result = match (key, field) {
             ("enter", Field::Description) => {
-                if self.stop_edit(tree)
+                if self.stop_edit(tree, false)
                     && self.current_item(tree).map(|i| !self.db.description(i).is_empty()).unwrap_or(false)
                 {
                     self.add_sibling(tree)
@@ -526,8 +533,12 @@ impl App {
                     Ok(())
                 }
             }
+            ("escape", Field::Description) => {
+                self.discard_edit(tree);
+                Ok(())
+            }
             ("escape" | "enter", _) => {
-                self.stop_edit(tree);
+                self.stop_edit(tree, false);
                 Ok(())
             }
             _ => {
@@ -641,7 +652,7 @@ impl App {
     }
 
     /// Stop editing the highlighted item, returns false if the item was dropped
-    fn stop_edit(&mut self, tree: TreeRef) -> bool {
+    fn stop_edit(&mut self, tree: TreeRef, discard: bool) -> bool {
         let state = self.tree_mut(tree);
         let Some(edit) = state.edit.take() else {
             self.mode = Mode::Normal;
@@ -650,19 +661,42 @@ impl App {
         let is_unsaved = state.unsaved == Some(edit.item);
         state.unsaved = None;
 
-        if is_unsaved && edit.input.value().trim().is_empty() {
+        if is_unsaved && (discard || edit.input.value().trim().is_empty()) {
             self.drop_current(tree);
             self.mode = Mode::Normal;
             return false;
         }
 
-        if let Err(e) = self.save_edit(&edit) {
-            self.notify(e, Level::Error);
+        if !discard {
+            if let Err(e) = self.save_edit(&edit) {
+                self.notify(e, Level::Error);
+            }
         }
 
         self.mode = Mode::Normal;
         self.refresh_all();
         true
+    }
+
+    fn discard_edit(&mut self, tree: TreeRef) {
+        let has_changes = self
+            .tree(tree)
+            .and_then(|t| t.editing())
+            .map(|e| e.input.value().trim() != self.edit_default(e.item, e.field).trim())
+            .unwrap_or(false);
+
+        if !has_changes || !self.show_confirm {
+            self.stop_edit(tree, true);
+            return;
+        }
+
+        self.confirm(Confirm {
+            action: ConfirmAction::Discard { tree },
+            message: "Discard changes? [y/N]".into(),
+            confirmed: Some(("The changes were discarded".into(), Level::Info)),
+            cancelled: None,
+            cancel_mode: Mode::Insert,
+        });
     }
 
     /// Remove the highlighted item without confirmation, highlighting the one above
@@ -908,6 +942,10 @@ impl App {
                 if self.show_confirm {
                     self.confirm(Confirm {
                         action: ConfirmAction::Remove { tree, item },
+                        message: "Are you sure? [y/N]".into(),
+                        confirmed: Some(("The items were deleted".into(), Level::Error)),
+                        cancelled: Some(("The items were retained".into(), Level::Info)),
+                        cancel_mode: Mode::Normal,
                     });
                 } else {
                     self.remove(tree, item);

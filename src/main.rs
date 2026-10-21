@@ -238,12 +238,17 @@ mod scenario {
         press(&mut app, "Yp");
         screen(&mut term, &mut app, "pasted");
 
-        // escape saves the edit
+        // discard edit with confirmation
         press(&mut app, "i");
         press(&mut app, " changed");
         key(&mut app, KeyCode::Esc);
-        let s = screen(&mut term, &mut app, "edited");
-        assert!(s.contains("Second todo changed") && app.mode == app::Mode::Normal);
+        let s = screen(&mut term, &mut app, "discard confirm");
+        assert!(s.contains("Discard changes? [y/N]"));
+        press(&mut app, "n");
+        let s = screen(&mut term, &mut app, "still editing");
+        assert!(s.contains("INSERT"));
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "y");
 
         // delete everything we made in the scenario workspace
         key(&mut app, KeyCode::Tab);
