@@ -479,6 +479,69 @@ mod scenario {
     }
 
     #[test]
+    fn drag_todo_onto_workspace() {
+        use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+
+        let mut app = temp_app("drag-ws");
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Enter);
+        press(&mut app, "Other");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "existing");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "k");
+        key(&mut app, KeyCode::Tab);
+        for d in ["A", "C"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "kAB");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(depths(&app), [("A".into(), 0), ("B".into(), 1), ("C".into(), 0)]);
+
+        let position = |term: &mut Terminal<TestBackend>, app: &mut app::App, tree: app::TreeRef, name: &str| {
+            screen(term, app, name);
+            let state = app.tree(tree).unwrap();
+            let index = state.rows.iter().position(|r| app.db.description(r.item) == name).unwrap();
+            let (_, top, _) = state.view.rows.iter().find(|(i, _, _)| *i == index).unwrap();
+            (state.view.area.x + 6, *top)
+        };
+        let mouse = |app: &mut app::App, kind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+        };
+
+        let todos = app.focused_tree();
+        let a = position(&mut term, &mut app, todos, "A");
+        let other = position(&mut term, &mut app, app::TreeRef::Workspaces, "Other");
+        let work = position(&mut term, &mut app, app::TreeRef::Workspaces, "Work");
+
+        // over its own workspace nothing happens
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), a);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), work);
+        let s = screen(&mut term, &mut app, "over own workspace");
+        assert!(s.contains("Work"));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), work);
+        assert_eq!(descriptions(&app), ["A", "B", "C"]);
+
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), a);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), other);
+        screen(&mut term, &mut app, "over other workspace");
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), other);
+        assert_eq!(descriptions(&app), ["C"]);
+
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "j");
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(depths(&app), [("existing".into(), 0), ("A".into(), 0), ("B".into(), 1)]);
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

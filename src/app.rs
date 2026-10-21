@@ -112,6 +112,8 @@ pub struct Drag {
     pub item: Item,
     pub start: (u16, u16),
     pub target: Option<DropTarget>,
+    /// Another workspace a dragged todo is over, which it moves to the bottom of
+    pub onto: Option<Item>,
 }
 
 /// Where a dragged row lands: after the row `above` (or first when None), at a depth
@@ -559,26 +561,45 @@ impl App {
             return self.run(Action::ToggleComplete);
         }
 
-        self.drag = Some(Drag { tree, item, start: (x, y), target: None });
+        self.drag = Some(Drag { tree, item, start: (x, y), target: None, onto: None });
         Ok(())
     }
 
     fn mouse_drag(&mut self, x: u16, y: u16) {
         let Some(drag) = &self.drag else { return };
-        if drag.target.is_none() && drag.start == (x, y) {
+        if drag.target.is_none() && drag.onto.is_none() && drag.start == (x, y) {
             return;
         }
-        let target = self.drop_target(drag, x, y);
+        let (target, onto) = if drag.tree.is_todos() && self.ws_tree.view.area.contains(Position::new(x, y)) {
+            let current = self.current_ws().map(Item::Ws);
+            let onto = self.row_at(x, y).map(|(_, i)| self.ws_tree.rows[i].item).filter(|ws| Some(*ws) != current);
+            (None, onto)
+        } else {
+            (self.drop_target(drag, x, y), None)
+        };
         if let Some(drag) = self.drag.as_mut() {
             drag.target = target;
+            drag.onto = onto;
         }
     }
 
     fn mouse_up(&mut self) -> Result<()> {
-        let Some(Drag { tree, item, target: Some(target), .. }) = self.drag.take() else {
-            return Ok(());
-        };
-        self.drop_item(tree, item, target)
+        let Some(drag) = self.drag.take() else { return Ok(()) };
+        if let Some(ws) = drag.onto {
+            return self.move_to_workspace(drag.item, ws);
+        }
+        match drag.target {
+            Some(target) => self.drop_item(drag.tree, drag.item, target),
+            None => Ok(()),
+        }
+    }
+
+    fn move_to_workspace(&mut self, item: Item, ws: Item) -> Result<()> {
+        let last = self.db.children(ws.as_parent(), true).last().copied();
+        self.db.move_to(item, ws.as_parent(), last)?;
+        self.refresh_all();
+        self.notify(format!("Moved to {}", self.db.description(ws)), Level::Info);
+        Ok(())
     }
 
     /// The rows a dragged item takes along: itself and everything shown beneath it

@@ -426,6 +426,8 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
         Some(from..from + 1 + len)
     });
     let target = drag.and_then(|d| d.target);
+    // a workspace a dragged todo would move to
+    let onto = app.drag.as_ref().and_then(|d| d.onto).filter(|_| tree == TreeRef::Workspaces);
 
     let mut shown = vec![];
     let mut y = inner.y;
@@ -442,6 +444,9 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
         }
         if highlighted == Some(index) {
             style = style.bg(if focused { HIGHLIGHT_FOCUSED } else { BG3 });
+        }
+        if onto == Some(row.item) {
+            style = style.bg(HIGHLIGHT_FOCUSED).add_modifier(Modifier::UNDERLINED).underline_color(RED);
         }
 
         let top = y;
