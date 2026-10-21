@@ -45,7 +45,7 @@ topmost workspace.
 | `/` | search |
 | `ctrl+s` | sort siblings |
 | `?` | help |
-| `ctrl+q`, `ctrl+c` | quit |
+| `q`, `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
 `escape` discards, asking first if something changed. The up and down arrows (also

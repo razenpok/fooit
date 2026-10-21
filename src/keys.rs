@@ -124,7 +124,7 @@ impl KeyManager {
             (&["-", "_"], Action::DecreaseUrgency),
             (&["/"], Action::StartSearch),
             (&["<ctrl+s>"], Action::StartSort),
-            (&["<ctrl+q>"], Action::Quit),
+            (&["q", "<ctrl+q>"], Action::Quit),
             (&["?"], Action::ShowHelp),
         ];
         for (keys, action) in defaults {
@@ -245,5 +245,6 @@ mod tests {
         assert!(matches!(km.register("q", true), KeyMatch::NoMatch));
         assert!(matches!(km.register("j", false), KeyMatch::NoMatch));
         assert!(matches!(km.register("ctrl+s", true), KeyMatch::Found(Action::StartSort)));
+        assert!(matches!(km.register("q", true), KeyMatch::Found(Action::Quit)));
     }
 }
