@@ -106,8 +106,8 @@ impl KeyManager {
             (&["A"], Action::AddChild),
             (&["J"], Action::ShiftDown),
             (&["K"], Action::ShiftUp),
-            (&[">>"], Action::Indent),
-            (&["<<"], Action::Dedent),
+            (&[">>", "<right>"], Action::Indent),
+            (&["<<", "<left>"], Action::Dedent),
             (&["xx"], Action::RemoveNode),
             (&["y"], Action::CopyDescription),
             (&["Y"], Action::CopyModel),
@@ -228,6 +228,8 @@ mod tests {
         assert!(matches!(km.register("g", true), KeyMatch::Found(Action::GoToTop)));
         assert!(matches!(km.register("<", true), KeyMatch::Multiple));
         assert!(matches!(km.register("<", true), KeyMatch::Found(Action::Dedent)));
+        assert!(matches!(km.register("left", true), KeyMatch::Found(Action::Dedent)));
+        assert!(matches!(km.register("right", true), KeyMatch::Found(Action::Indent)));
         assert!(matches!(km.register("tab", true), KeyMatch::Found(Action::SwitchFocus)));
         assert!(matches!(km.register("x", true), KeyMatch::Multiple));
         assert!(matches!(km.register("q", true), KeyMatch::NoMatch));

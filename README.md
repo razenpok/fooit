@@ -25,13 +25,13 @@ fooit [--db PATH] [-v] [config-loc]
 | key | action |
 | --- | --- |
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
-| `j` / `k`, arrows | move down / up |
+| `j` / `k`, down / up | move down / up |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
 | `a` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
-| `>>` / `<<` | indent / dedent |
+| `>>` / `<<`, right / left | indent / dedent |
 | `xx` | remove (asks for confirmation) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
