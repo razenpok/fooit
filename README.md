@@ -43,7 +43,7 @@ It opens on the first workspace's todos, already adding a new one; `escape` drop
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |
-| `H` | show / hide completed todos (hidden on start) |
+| `H` | show / hide completed todos (hidden on start, once the cursor leaves them) |
 | `X` | remove the completed todos of the workspace (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |
 | `/` | search |

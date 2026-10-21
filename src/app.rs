@@ -365,22 +365,40 @@ impl App {
         let highlighted_item = state.current();
         let highlighted_index = state.highlighted;
 
-        let mut rows = vec![];
-        fn walk(app: &App, parent: Parent, todos: bool, depth: usize, filter: &str, rows: &mut Vec<Row>) {
-            for child in app.db.children(parent, todos) {
-                if !app.show_completed && app.is_completed(child) {
+        // a completed todo, and everything beneath it, stays until the cursor leaves them
+        let mut kept = HashSet::new();
+        let mut item = highlighted_item;
+        while let Some(i) = item {
+            kept.insert(i);
+            item = self.db.same_kind_parent(i);
+        }
+
+        struct Walk<'a> {
+            app: &'a App,
+            todos: bool,
+            filter: &'a str,
+            kept: &'a HashSet<Item>,
+            rows: Vec<Row>,
+        }
+        fn walk(w: &mut Walk, parent: Parent, depth: usize, in_kept: bool) {
+            for child in w.app.db.children(parent, w.todos) {
+                let completed = w.app.is_completed(child);
+                let kept = completed && w.kept.contains(&child);
+                if completed && !w.app.show_completed && !in_kept && !kept {
                     continue;
                 }
-                let enabled = app.db.description(child).contains(filter);
-                rows.push(Row { item: child, depth, enabled });
-                if !app.collapsed.contains(&child) || !filter.is_empty() {
-                    walk(app, child.as_parent(), todos, depth + 1, filter, rows);
+                let enabled = w.app.db.description(child).contains(w.filter);
+                w.rows.push(Row { item: child, depth, enabled });
+                if !w.app.collapsed.contains(&child) || !w.filter.is_empty() {
+                    walk(w, child.as_parent(), depth + 1, in_kept || kept);
                 }
             }
         }
+        let mut w = Walk { app: self, todos, filter: &filter, kept: &kept, rows: vec![] };
         if let Some(root) = root {
-            walk(self, root, todos, 0, &filter, &mut rows);
+            walk(&mut w, root, 0, false);
         }
+        let rows = w.rows;
 
         let state = match tree {
             TreeRef::Workspaces => &mut self.ws_tree,
@@ -433,15 +451,23 @@ impl App {
         if let Some(index) = state.index_of(item) {
             state.highlighted = Some(index);
         }
-        if tree == TreeRef::Workspaces {
-            self.refresh_all();
-        }
+        self.highlight_moved(tree);
     }
 
     fn set_highlight(&mut self, tree: TreeRef, index: Option<usize>) {
         self.tree_mut(tree).highlighted = index;
+        self.highlight_moved(tree);
+    }
+
+    fn highlight_moved(&mut self, tree: TreeRef) {
         if tree == TreeRef::Workspaces {
             self.refresh_all();
+            return;
+        }
+        // completed todos kept for the cursor may have to go now
+        let shows_completed = self.tree(tree).is_some_and(|t| t.rows.iter().any(|r| self.is_completed(r.item)));
+        if !self.show_completed && shows_completed {
+            self.rebuild(tree);
         }
     }
 

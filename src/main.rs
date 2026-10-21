@@ -368,9 +368,14 @@ mod scenario {
         press(&mut app, "nested keep");
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Esc);
+        // completed todos stay until the cursor leaves them
         press(&mut app, "kc");
+        assert_eq!(descriptions(&app), ["done", "keep", "nested done", "nested keep"]);
+        press(&mut app, "gg");
         assert_eq!(descriptions(&app), ["done", "keep", "nested keep"]);
-        press(&mut app, "ggc");
+        press(&mut app, "c");
+        assert_eq!(descriptions(&app), ["done", "keep", "nested keep"]);
+        press(&mut app, "j");
         assert_eq!(descriptions(&app), ["keep", "nested keep"]);
 
         press(&mut app, "H");
@@ -429,10 +434,12 @@ mod scenario {
             mouse(app, MouseEventKind::Up(MouseButton::Left), to);
         };
 
-        // clicking the status completes, which hides the todo
+        // clicking the status completes, which hides the todo once the cursor leaves it
         let b = at(&mut term, &mut app, "B", 0);
         mouse(&mut app, MouseEventKind::Down(MouseButton::Left), b);
         mouse(&mut app, MouseEventKind::Up(MouseButton::Left), b);
+        assert_eq!(descriptions(&app), ["A", "B", "C"]);
+        press(&mut app, "j");
         assert_eq!(descriptions(&app), ["A", "C"]);
         press(&mut app, "H");
         let b = at(&mut term, &mut app, "B", 0);
@@ -600,6 +607,33 @@ mod scenario {
     }
 
     #[test]
+    fn completed_todo_stays_while_the_cursor_is_inside_it() {
+        let mut app = temp_app("kept");
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        for d in ["parent", "other"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "kAchild");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+
+        // completing the parent completes the child too; both stay while the cursor is in there
+        press(&mut app, "kc");
+        assert_eq!(descriptions(&app), ["parent", "child", "other"]);
+        press(&mut app, "j");
+        assert_eq!(highlighted(&app), "child");
+        assert_eq!(descriptions(&app), ["parent", "child", "other"]);
+        press(&mut app, "k");
+        assert_eq!(descriptions(&app), ["parent", "child", "other"]);
+        press(&mut app, "jj");
+        assert_eq!(highlighted(&app), "other");
+        assert_eq!(descriptions(&app), ["other"]);
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));
@@ -651,8 +685,8 @@ mod scenario {
         let s = screen(&mut term, &mut app, "indented");
         assert!(s.contains("Second todo"));
         press(&mut app, "c");
-        let s = screen(&mut term, &mut app, "child completed => parent completed, both hidden");
-        assert!(!s.contains("Second todo") && !s.contains("Write the port"));
+        let s = screen(&mut term, &mut app, "child completed => parent completed, both kept under the cursor");
+        assert!(s.contains("Second todo") && s.contains("Write the port"));
         press(&mut app, "HG");
         let s = screen(&mut term, &mut app, "completed shown");
         assert!(s.contains("Second todo") && s.contains("Write the port"));
