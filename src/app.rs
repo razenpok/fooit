@@ -96,14 +96,37 @@ pub fn indent(depth: usize) -> usize {
     if depth > 0 { 2 * depth + 2 } else { 0 }
 }
 
+/// Each column of a row at a depth: its field, where its cell starts (from the tree's left
+/// edge) and the width of its content, which sits one column in from the cell's start
+pub fn row_cells(columns: &[(Field, usize)], depth: usize, total: usize) -> Vec<(Field, usize, usize)> {
+    let fixed: usize = columns
+        .iter()
+        .filter(|(f, _)| *f != Field::Description)
+        .map(|(_, w)| w + 2)
+        .sum::<usize>()
+        + indent(depth);
+    let description = total.saturating_sub(fixed + 2).max(1);
+
+    let mut x = indent(depth);
+    columns
+        .iter()
+        .map(|(field, width)| {
+            let width = if *field == Field::Description { description } else { *width };
+            let cell = (*field, x, width);
+            x += width + 2;
+            cell
+        })
+        .collect()
+}
+
 /// Where a tree was last drawn, for finding what the mouse points at
 #[derive(Default)]
 pub struct View {
     pub area: Rect,
     /// Row index, first line and number of lines of each row on screen
     pub rows: Vec<(usize, u16, u16)>,
-    /// Width of the status column, padding included
-    pub status_width: u16,
+    /// The column widths the rows were drawn with
+    pub columns: Vec<(Field, usize)>,
 }
 
 /// A row being dragged with the mouse
@@ -114,6 +137,8 @@ pub struct Drag {
     pub target: Option<DropTarget>,
     /// Another workspace a dragged todo is over, which it moves to the bottom of
     pub onto: Option<Item>,
+    /// Whether the mouse moved since it was pressed, otherwise it is a click
+    pub moved: bool,
 }
 
 /// Where a dragged row lands: after the row `above` (or first when None), at a depth
@@ -555,19 +580,47 @@ impl App {
         self.focus = if tree.is_todos() { Focus::Todos } else { Focus::Workspaces };
         self.highlight_item(tree, item);
 
-        let view = &self.tree(tree).unwrap().view;
-        let status = view.area.x + indent(depth) as u16;
-        if tree.is_todos() && (status..status + view.status_width).contains(&x) {
+        if self.cell_at(tree, depth, x).is_some_and(|(field, _, _)| field == Field::Status) {
             return self.run(Action::ToggleComplete);
         }
 
-        self.drag = Some(Drag { tree, item, start: (x, y), target: None, onto: None });
+        self.drag = Some(Drag { tree, item, start: (x, y), target: None, onto: None, moved: false });
+        Ok(())
+    }
+
+    /// The column under a screen column, with its content's screen column and width
+    fn cell_at(&self, tree: TreeRef, depth: usize, x: u16) -> Option<(Field, u16, usize)> {
+        let view = &self.tree(tree)?.view;
+        row_cells(&view.columns, depth, view.area.width as usize)
+            .into_iter()
+            .map(|(field, start, width)| (field, view.area.x + start as u16, width))
+            .find(|(_, start, width)| (*start..start + *width as u16 + 2).contains(&x))
+            .map(|(field, start, width)| (field, start + 1, width))
+    }
+
+    /// Start editing the clicked column of a todo, with the cursor where the click was
+    fn click_edit(&mut self, tree: TreeRef, item: Item, (x, y): (u16, u16)) -> Result<()> {
+        let Some(state) = self.tree(tree).filter(|_| tree.is_todos()) else { return Ok(()) };
+        let Some(index) = state.index_of(item) else { return Ok(()) };
+        let Some(&(_, top, _)) = state.view.rows.iter().find(|(i, _, _)| *i == index) else { return Ok(()) };
+        let Some((field, start, width)) = self.cell_at(tree, state.rows[index].depth, x) else { return Ok(()) };
+        if field == Field::Status {
+            return Ok(());
+        }
+
+        self.start_edit(tree, field)?;
+        let Some(edit) = self.tree_mut(tree).edit.as_mut().filter(|e| e.item == item) else { return Ok(()) };
+        let column = x.saturating_sub(start) as usize;
+        let line = if field == Field::Description { (y - top) as usize } else { 0 };
+        let wrap_width = if field == Field::Description { width } else { usize::MAX / 2 };
+        let cursor = crate::ui::char_at(&edit.input.value(), wrap_width, line, column);
+        edit.input.set_cursor(cursor);
         Ok(())
     }
 
     fn mouse_drag(&mut self, x: u16, y: u16) {
         let Some(drag) = &self.drag else { return };
-        if drag.target.is_none() && drag.onto.is_none() && drag.start == (x, y) {
+        if !drag.moved && drag.start == (x, y) {
             return;
         }
         let (target, onto) = if drag.tree.is_todos() && self.ws_tree.view.area.contains(Position::new(x, y)) {
@@ -580,6 +633,7 @@ impl App {
         if let Some(drag) = self.drag.as_mut() {
             drag.target = target;
             drag.onto = onto;
+            drag.moved = true;
         }
     }
 
@@ -590,6 +644,7 @@ impl App {
         }
         match drag.target {
             Some(target) => self.drop_item(drag.tree, drag.item, target),
+            None if !drag.moved => self.click_edit(drag.tree, drag.item, drag.start),
             None => Ok(()),
         }
     }

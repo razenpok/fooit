@@ -38,6 +38,11 @@ impl Input {
         self.draw().trim().to_string()
     }
 
+    /// Put the cursor before the character at an index, or at the end
+    pub fn set_cursor(&mut self, index: usize) {
+        self.cursor = index.min(self.value.len());
+    }
+
     pub fn insert_text(&mut self, text: &str) {
         let chars: Vec<char> = text.chars().collect();
         let count = chars.len();

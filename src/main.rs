@@ -470,12 +470,21 @@ mod scenario {
         assert!(app.wants_mouse());
         assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
 
-        // a plain click only highlights
-        let a = at(&mut term, &mut app, "A", 0);
-        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (a.0 + 4, a.1));
-        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (a.0 + 4, a.1));
-        assert_eq!(highlighted(&app), "A");
-        assert_eq!(depths(&app), [("A".into(), 0), ("C".into(), 0), ("B".into(), 1)]);
+        // a click starts editing, with the cursor where the click was
+        let c = at(&mut term, &mut app, "C", 0);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (c.0 + 20, c.1));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (c.0 + 20, c.1));
+        assert_eq!(highlighted(&app), "C");
+        assert_eq!(app.mode, app::Mode::Insert);
+        press(&mut app, "x");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        let b = at(&mut term, &mut app, "B", 1);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (b.0 + 3, b.1));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (b.0 + 3, b.1));
+        press(&mut app, "y");
+        key(&mut app, KeyCode::Up);
+        assert_eq!(depths(&app), [("A".into(), 0), ("Cx".into(), 0), ("yB".into(), 1)]);
     }
 
     #[test]

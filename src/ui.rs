@@ -1,6 +1,6 @@
 //! Rendering, matching dooit's default theme and layout
 
-use crate::app::{indent, layout, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, layout, row_cells, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -108,6 +108,53 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     }
     lines.push(line);
     lines
+}
+
+/// The index of the character shown at a line and column once text is wrapped to a width
+pub fn char_at(text: &str, width: usize, line: usize, column: usize) -> usize {
+    let chars: Vec<char> = display(text).chars().collect();
+    let lines = wrap(&display(text), width);
+    let mut start = 0;
+    for (i, wrapped) in lines.iter().enumerate() {
+        // wrapping drops the spaces a line breaks at, and lines never start with one
+        while start < chars.len() && chars[start] == ' ' && !wrapped.starts_with(' ') && !wrapped.is_empty() {
+            start += 1;
+        }
+        let len = wrapped.chars().count();
+        if i == line.min(lines.len() - 1) {
+            let mut used = 0;
+            let mut offset = 0;
+            for c in wrapped.chars() {
+                let w = c.width().unwrap_or(0);
+                if used + w > column {
+                    break;
+                }
+                used += w;
+                offset += 1;
+            }
+            return start + offset;
+        }
+        start += len;
+    }
+    chars.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn char_positions_in_wrapped_text() {
+        assert_eq!(wrap("one two  three", 8), ["one two ", "three"]);
+        assert_eq!(char_at("one two  three", 8, 1, 1), 10);
+        assert_eq!(char_at("one two three", 8, 0, 0), 0);
+        assert_eq!(char_at("one two three", 8, 0, 5), 5);
+        assert_eq!(char_at("one two three", 8, 0, 30), 7);
+        assert_eq!(char_at("one two three", 8, 1, 2), 10);
+        assert_eq!(char_at("one two three", 8, 5, 30), 13);
+        assert_eq!(char_at("abcdefghij", 4, 2, 1), 9);
+        assert_eq!(char_at("", 4, 0, 3), 0);
+    }
 }
 
 fn truncate(text: &str, width: usize) -> String {
@@ -294,13 +341,10 @@ fn column_widths(app: &mut App, tree: TreeRef, rows: &[Row]) -> Vec<(Field, usiz
 }
 
 fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], total: usize) -> Vec<Line<'static>> {
-    let fixed: usize = widths
+    let description_width = row_cells(widths, row.depth, total)
         .iter()
-        .filter(|(f, _)| *f != Field::Description)
-        .map(|(_, w)| w + 2)
-        .sum::<usize>()
-        + indent(row.depth);
-    let description_width = total.saturating_sub(fixed + 2).max(1);
+        .find(|(f, _, _)| *f == Field::Description)
+        .map_or(1, |(_, _, w)| *w);
 
     let mut cells = vec![];
     if row.depth > 0 {
@@ -481,10 +525,9 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
         buf.set_style(rect, Style::new().add_modifier(Modifier::UNDERLINED).underline_color(RED));
     }
 
-    let status_width = widths.iter().find(|(f, _)| *f == Field::Status).map_or(0, |(_, w)| *w as u16 + 2);
     let view = &mut app.tree_mut(tree).view;
     view.rows = shown;
-    view.status_width = status_width;
+    view.columns = widths;
 }
 
 // ----------------------------------------------------------------------

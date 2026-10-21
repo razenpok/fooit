@@ -49,8 +49,9 @@ topmost workspace.
 | `?` | help |
 | `q`, `ctrl+q`, `ctrl+c` | quit |
 
-With the mouse, clicking a todo's status toggles its completion, clicking a row
-highlights it, the wheel moves the cursor, and dragging a row moves it along with its
+With the mouse, clicking a todo's status toggles its completion, clicking a todo's
+description, due date or urgency starts editing it with the cursor where you clicked,
+clicking a workspace selects it, the wheel moves the cursor, and dragging a row moves it along with its
 children. Where it lands follows the pointer, and moving sideways while dragging
 nests it deeper or shallower, as far as the rows around it allow. Dropping a todo on
 another workspace moves it to the bottom of that workspace. While editing, the
