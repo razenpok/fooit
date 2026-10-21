@@ -306,6 +306,22 @@ impl App {
         }
     }
 
+    /// Finish a new item that is still being added, so none is left without a description:
+    /// it is kept when something was typed, and removed otherwise
+    pub fn close(&mut self) {
+        let mut trees = vec![TreeRef::Workspaces];
+        trees.extend(self.todo_trees.keys().map(|ws| TreeRef::Todos(*ws)));
+        for tree in trees {
+            let state = self.tree_mut(tree);
+            if state.unsaved.is_some() && state.edit.as_ref().map(|e| e.item) == state.unsaved {
+                if let Some(index) = state.index_of(state.unsaved.unwrap()) {
+                    state.highlighted = Some(index);
+                }
+                self.stop_edit(tree, false);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
     // Tree bookkeeping
 

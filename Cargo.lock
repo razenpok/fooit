@@ -353,6 +353,7 @@ dependencies = [
  "ratatui",
  "regex",
  "rusqlite",
+ "signal-hook",
  "unicode-width 0.2.0",
 ]
 

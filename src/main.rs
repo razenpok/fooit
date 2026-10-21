@@ -14,6 +14,8 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::execute;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// The version of dooit whose behaviour and database this port follows
@@ -139,6 +141,12 @@ fn run(mut app: app::App) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
     execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
 
+    // closing the terminal window hangs up; stop like a quit instead of being killed
+    let stop = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
+        signal_hook::flag::register(signal, Arc::clone(&stop))?;
+    }
+
     let result = (|| -> std::io::Result<()> {
         // redraw only after an event, an outside change, or when the status bar clock moves on
         let mut dirty = true;
@@ -159,7 +167,7 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                 dirty = false;
                 shown_second = second;
             }
-            if app.quit {
+            if app.quit || stop.load(Ordering::Relaxed) {
                 return Ok(());
             }
 
@@ -175,6 +183,9 @@ fn run(mut app: app::App) -> std::io::Result<()> {
             dirty |= app.tick();
         }
     })();
+
+    // the terminal may be gone already, so this comes before anything is written to it
+    app.close();
 
     let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     ratatui::restore();
@@ -631,6 +642,27 @@ mod scenario {
         press(&mut app, "jj");
         assert_eq!(highlighted(&app), "other");
         assert_eq!(descriptions(&app), ["other"]);
+    }
+
+    #[test]
+    fn closing_while_adding_keeps_no_empty_todo() {
+        let path = std::env::temp_dir().join(format!("fooit-close-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        app.close();
+
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        app.start();
+        press(&mut app, "typed");
+        app.close();
+
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        press(&mut app, "j");
+        key(&mut app, KeyCode::Tab);
+        app.close();
+        assert_eq!(descriptions(&app), ["typed"]);
     }
 
     #[test]

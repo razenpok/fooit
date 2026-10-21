@@ -11,5 +11,6 @@ crossterm = "0.28"
 dirs = "5"
 ratatui = "0.29"
 regex = "1"
+signal-hook = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 unicode-width = "0.2"
