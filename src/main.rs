@@ -221,6 +221,40 @@ mod scenario {
     }
 
     #[test]
+    fn shift_arrows_move_between_top_level_items() {
+        let mut app = temp_app("top-level");
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        for d in ["one", "two", "three"] {
+            press(&mut app, d);
+            key(&mut app, KeyCode::Enter);
+        }
+        key(&mut app, KeyCode::Esc);
+        // nest "two" and a child of it under "one"
+        press(&mut app, "k>>Achild");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(descriptions(&app), ["one", "two", "child", "three"]);
+        assert_eq!(highlighted(&app), "child");
+
+        let shift = |app: &mut app::App, code| app.on_key(KeyEvent::new(code, KeyModifiers::SHIFT));
+        shift(&mut app, KeyCode::Up);
+        assert_eq!(highlighted(&app), "one");
+        shift(&mut app, KeyCode::Up);
+        assert_eq!(highlighted(&app), "one");
+        shift(&mut app, KeyCode::Down);
+        assert_eq!(highlighted(&app), "three");
+
+        // also finishes an edit
+        key(&mut app, KeyCode::Up);
+        press(&mut app, "i!");
+        shift(&mut app, KeyCode::Up);
+        assert_eq!(app.mode, app::Mode::Normal);
+        assert_eq!(highlighted(&app), "one");
+        assert_eq!(descriptions(&app), ["one", "two", "child!", "three"]);
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

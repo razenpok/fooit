@@ -7,6 +7,8 @@ pub enum Action {
     SwitchFocus,
     MoveDown,
     MoveUp,
+    MoveDownTopLevel,
+    MoveUpTopLevel,
     EditDescription,
     EditDue,
     EditRecurrence,
@@ -42,6 +44,8 @@ impl Action {
             Action::SwitchFocus => "Switch focus between the workspace and the todo list",
             Action::MoveDown => "Move the cursor down in the focused list",
             Action::MoveUp => "Move the cursor up in the focused list",
+            Action::MoveDownTopLevel => "Move the cursor to the next top-level item",
+            Action::MoveUpTopLevel => "Move the cursor to the previous top-level item",
             Action::EditDescription => "Start editing the description of the focused item",
             Action::EditDue => "Start editing the due date of the todo",
             Action::EditRecurrence => "Start editing the recurrence of the todo",
@@ -94,6 +98,8 @@ impl KeyManager {
             (&["<tab>"], Action::SwitchFocus),
             (&["j", "<down>"], Action::MoveDown),
             (&["k", "<up>"], Action::MoveUp),
+            (&["<shift+down>"], Action::MoveDownTopLevel),
+            (&["<shift+up>"], Action::MoveUpTopLevel),
             (&["i"], Action::EditDescription),
             (&["d"], Action::EditDue),
             (&["r"], Action::EditRecurrence),
@@ -183,6 +189,7 @@ impl KeyManager {
 pub fn resolve(event: KeyEvent) -> Option<String> {
     let ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
     let alt = event.modifiers.contains(KeyModifiers::ALT);
+    let shift = event.modifiers.contains(KeyModifiers::SHIFT);
 
     let key = match event.code {
         KeyCode::Char(c) if ctrl => format!("ctrl+{}", c.to_ascii_lowercase()),
@@ -203,6 +210,8 @@ pub fn resolve(event: KeyEvent) -> Option<String> {
         KeyCode::Right if ctrl || alt => "ctrl+right".into(),
         KeyCode::Left => "left".into(),
         KeyCode::Right => "right".into(),
+        KeyCode::Up if shift => "shift+up".into(),
+        KeyCode::Down if shift => "shift+down".into(),
         KeyCode::Up => "up".into(),
         KeyCode::Down => "down".into(),
         KeyCode::Home => "home".into(),
@@ -230,6 +239,7 @@ mod tests {
         assert!(matches!(km.register("<", true), KeyMatch::Found(Action::Dedent)));
         assert!(matches!(km.register("left", true), KeyMatch::Found(Action::Dedent)));
         assert!(matches!(km.register("right", true), KeyMatch::Found(Action::Indent)));
+        assert!(matches!(km.register("shift+up", true), KeyMatch::Found(Action::MoveUpTopLevel)));
         assert!(matches!(km.register("tab", true), KeyMatch::Found(Action::SwitchFocus)));
         assert!(matches!(km.register("x", true), KeyMatch::Multiple));
         assert!(matches!(km.register("q", true), KeyMatch::NoMatch));

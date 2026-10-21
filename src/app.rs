@@ -549,9 +549,9 @@ impl App {
                 self.stop_edit(tree, false);
                 Ok(())
             }
-            ("up" | "down", _) => {
+            ("up" | "down" | "shift+up" | "shift+down", _) => {
                 // pick the target first, the edited item may be dropped when it stays empty
-                let target = self.move_target(tree, key == "down");
+                let target = self.move_target(tree, key.ends_with("down"), key.starts_with("shift+"));
                 self.stop_edit(tree, false);
                 if let Some(item) = target {
                     self.highlight_item(tree, item);
@@ -886,8 +886,18 @@ impl App {
     // Actions
 
     /// The item moving the cursor up or down lands on, None at the ends of the list
-    fn move_target(&mut self, tree: TreeRef, down: bool) -> Option<Item> {
+    fn move_target(&mut self, tree: TreeRef, down: bool, top_level: bool) -> Option<Item> {
         let state = self.tree_mut(tree);
+        if top_level {
+            let found = |&i: &usize| state.rows[i].depth == 0 && state.rows[i].enabled;
+            let index = match (state.highlighted, down) {
+                (None, true) => (0..state.rows.len()).find(found),
+                (None, false) => (0..state.rows.len()).rev().find(found),
+                (Some(h), true) => (h + 1..state.rows.len()).find(found),
+                (Some(h), false) => (0..h).rev().find(found),
+            };
+            return index.map(|i| state.rows[i].item);
+        }
         let len = state.rows.len();
         if len == 0 || (down && state.highlighted == Some(len - 1)) || (!down && state.highlighted == Some(0)) {
             return None;
@@ -908,8 +918,10 @@ impl App {
                 }
                 Focus::Todos => self.focus = Focus::Workspaces,
             },
-            Action::MoveDown | Action::MoveUp => {
-                if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
+            Action::MoveDown | Action::MoveUp | Action::MoveDownTopLevel | Action::MoveUpTopLevel => {
+                let down = matches!(action, Action::MoveDown | Action::MoveDownTopLevel);
+                let top_level = matches!(action, Action::MoveDownTopLevel | Action::MoveUpTopLevel);
+                if let Some(item) = self.move_target(tree, down, top_level) {
                     self.highlight_item(tree, item);
                 }
             }

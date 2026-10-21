@@ -26,6 +26,7 @@ fooit [--db PATH] [-v] [config-loc]
 | --- | --- |
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
 | `j` / `k`, down / up | move down / up |
+| shift+down / shift+up | next / previous top-level item |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
 | `a` / `A` | add sibling / child |
@@ -43,8 +44,8 @@ fooit [--db PATH] [-v] [config-loc]
 | `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
-`escape` discards, asking first if something changed. The up and down arrows and
-`tab` save the edit and then move the cursor or switch lists.
+`escape` discards, asking first if something changed. The up and down arrows (also
+with shift) and `tab` save the edit and then move the cursor or switch lists.
 
 ## Differences from dooit
 
