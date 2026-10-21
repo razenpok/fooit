@@ -308,6 +308,29 @@ mod scenario {
     }
 
     #[test]
+    fn children_are_shown_on_start() {
+        let path = std::env::temp_dir().join(format!("fooit-expanded-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        press(&mut app, "aWork");
+        key(&mut app, KeyCode::Tab);
+        press(&mut app, "parent");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+        press(&mut app, "Achild");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Esc);
+
+        let mut app = app::App::new(db::Db::open(&path).unwrap());
+        press(&mut app, "j");
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(descriptions(&app), ["parent", "child"]);
+        press(&mut app, "kz");
+        assert_eq!(descriptions(&app), ["parent"]);
+    }
+
+    #[test]
     fn walkthrough() {
         let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
             let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

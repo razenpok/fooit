@@ -191,7 +191,8 @@ pub struct App {
     pub todo_trees: HashMap<i64, TreeState>,
     pub focus: Focus,
     pub mode: Mode,
-    pub expanded: HashSet<Item>,
+    /// Items start expanded, so only the collapsed ones are tracked
+    pub collapsed: HashSet<Item>,
     pub keys: KeyManager,
     pub bar: Bar,
     pub show_confirm: bool,
@@ -215,7 +216,7 @@ impl App {
             todo_trees: HashMap::new(),
             focus: Focus::Workspaces,
             mode: Mode::Normal,
-            expanded: HashSet::new(),
+            collapsed: HashSet::new(),
             keys: KeyManager::with_defaults(),
             bar: Bar::Status,
             show_confirm: true,
@@ -294,7 +295,7 @@ impl App {
             for child in app.db.children(parent, todos) {
                 let enabled = app.db.description(child).contains(filter);
                 rows.push(Row { item: child, depth, enabled });
-                if app.expanded.contains(&child) || !filter.is_empty() {
+                if !app.collapsed.contains(&child) || !filter.is_empty() {
                     walk(app, child.as_parent(), todos, depth + 1, filter, rows);
                 }
             }
@@ -726,7 +727,7 @@ impl App {
         let index = state.highlighted.unwrap_or(0);
         let Some(item) = state.current() else { return };
 
-        self.expanded.remove(&item);
+        self.collapsed.remove(&item);
         if let Err(e) = self.db.delete(item) {
             self.notify(e, Level::Error);
         }
@@ -795,13 +796,13 @@ impl App {
     fn add_child(&mut self, tree: TreeRef) -> Result<()> {
         let current = self.current_item(tree)?;
         let item = self.db.add_child(current)?;
-        self.expanded.insert(current);
+        self.collapsed.remove(&current);
         self.refresh_all();
         self.start_editing_new_node(tree, item)
     }
 
     fn remove(&mut self, tree: TreeRef, item: Item) {
-        self.expanded.remove(&item);
+        self.collapsed.remove(&item);
         if let Item::Ws(id) = item {
             self.todo_trees.remove(&id);
         }
@@ -813,8 +814,8 @@ impl App {
     }
 
     fn toggle_expand_item(&mut self, item: Item) {
-        if !self.expanded.remove(&item) {
-            self.expanded.insert(item);
+        if !self.collapsed.remove(&item) {
+            self.collapsed.insert(item);
         }
         self.refresh_all();
     }
@@ -963,7 +964,7 @@ impl App {
             Action::Indent => {
                 let item = self.current_item(tree)?;
                 if let Some(parent) = self.db.indent(item)? {
-                    self.expanded.insert(parent);
+                    self.collapsed.remove(&parent);
                 }
                 self.refresh_all();
             }

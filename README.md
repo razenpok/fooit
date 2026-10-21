@@ -61,6 +61,7 @@ with shift) and `tab` save the edit and then move the cursor or switch lists.
 - Due dates accept a practical subset of what `dateutil` parses, plus `today`,
   `tomorrow` and `yesterday`.
 - Arrow keys move the cursor in addition to `j`/`k`.
+- Items start expanded, so children are shown when the app opens; `z` collapses them.
 
 ## Development
 
