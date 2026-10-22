@@ -46,6 +46,60 @@ pub enum Action {
 }
 
 impl Action {
+    pub const ALL: &[Action] = &[
+        Action::SwitchFocus,
+        Action::MoveDown,
+        Action::MoveUp,
+        Action::NextSibling,
+        Action::PreviousSibling,
+        Action::IntoChildren,
+        Action::ToParent,
+        Action::EditDescription,
+        Action::EditDue,
+        Action::EditRecurrence,
+        Action::EditEffort,
+        Action::AddSibling,
+        Action::ToggleExpand,
+        Action::ToggleExpandParent,
+        Action::GoToTop,
+        Action::GoToBottom,
+        Action::AddChild,
+        Action::ShiftDown,
+        Action::ShiftUp,
+        Action::Indent,
+        Action::Dedent,
+        Action::RemoveNode,
+        Action::CopyDescription,
+        Action::CopyModel,
+        Action::PasteBelow,
+        Action::PasteAbove,
+        Action::ToggleComplete,
+        Action::StartMove,
+        Action::Undo,
+        Action::Redo,
+        Action::ToggleShowCompleted,
+        Action::RemoveCompleted,
+        Action::IncreaseUrgency,
+        Action::DecreaseUrgency,
+        Action::StartSearch,
+        Action::FindEverywhere,
+        Action::StartSort,
+        Action::Quit,
+        Action::ShowHelp,
+    ];
+
+    /// The name used for the action in the keys file: `remove_node` for `RemoveNode`
+    pub fn name(&self) -> String {
+        let mut name = String::new();
+        for (i, c) in format!("{:?}", self).chars().enumerate() {
+            if c.is_uppercase() && i > 0 {
+                name.push('_');
+            }
+            name.push(c.to_ascii_lowercase());
+        }
+        name
+    }
+
     /// The descriptions shown on the help screen
     pub fn description(&self) -> &'static str {
         match self {
@@ -159,6 +213,64 @@ impl KeyManager {
         km
     }
 
+    /// The default bindings with the ones in a keys file in their place. Each line binds an
+    /// action to one key or a list of them, replacing its defaults, like
+    /// `remove_node = "d"` or `next_sibling = ["<down>", "J"]`; `#` starts a comment
+    pub fn from_file(text: &str) -> Result<KeyManager, String> {
+        let mut km = KeyManager::with_defaults();
+        for (number, line) in text.lines().enumerate() {
+            let line = strip_comment(line).trim();
+            if line.is_empty() {
+                continue;
+            }
+            let at = |message: String| format!("line {}: {}", number + 1, message);
+            let (name, value) = line.split_once('=').ok_or_else(|| at("expected `action = \"key\"`".into()))?;
+            let name = name.trim();
+            let action = Action::ALL
+                .iter()
+                .find(|a| a.name() == name)
+                .ok_or_else(|| at(format!("unknown action `{}`", name)))?;
+            let keys = parse_keys(value.trim()).ok_or_else(|| at("expected a \"key\" or a list of them".into()))?;
+            km.bindings.retain(|(_, a)| a != action);
+            km.bindings.extend(keys.into_iter().map(|k| (k, *action)));
+        }
+
+        // a key that is also another action's, or the start of another key, would never be
+        // told apart from it
+        for (key, action) in &km.bindings {
+            if let Some((_, other)) = km.bindings.iter().find(|(k, a)| k == key && a != action) {
+                return Err(format!("`{}` is bound to both {} and {}", key, action.name(), other.name()));
+            }
+            if let Some((other, other_action)) = km.bindings.iter().find(|(k, _)| k != key && k.starts_with(key.as_str())) {
+                return Err(format!(
+                    "`{}` ({}) is the start of `{}` ({}), so it could never be pressed on its own",
+                    key,
+                    action.name(),
+                    other,
+                    other_action.name()
+                ));
+            }
+        }
+        Ok(km)
+    }
+
+    /// The bindings written out as a keys file
+    pub fn to_file(&self) -> String {
+        let mut out = String::from("# fooit keys: action = \"key\" or [\"key\", ...]; keys like \"a\", \"gg\", \"<ctrl+s>\", \"<down>\"\n");
+        for action in Action::ALL {
+            let keys: Vec<String> =
+                self.bindings.iter().filter(|(_, a)| a == action).map(|(k, _)| format!("{:?}", k)).collect();
+            if keys.is_empty() {
+                continue;
+            }
+            if !action.description().is_empty() {
+                out += &format!("\n# {}\n", action.description());
+            }
+            out += &format!("{} = [{}]\n", action.name(), keys.join(", "));
+        }
+        out
+    }
+
     fn input(&self) -> String {
         let mut formatted = String::new();
         for i in &self.inputs {
@@ -207,6 +319,54 @@ impl KeyManager {
         self.clear();
         KeyMatch::Found(action)
     }
+}
+
+fn strip_comment(line: &str) -> &str {
+    // a # inside quotes is a key, not a comment
+    let mut quoted = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            '#' if !quoted => return &line[..i],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// `"a"` or `["a", "<ctrl+s>"]`, with `\"` and `\\` inside the quotes
+fn parse_keys(value: &str) -> Option<Vec<String>> {
+    let (list, mut rest) = match value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        Some(inner) => (true, inner.trim()),
+        None => (false, value.trim()),
+    };
+    let mut keys = vec![];
+    while !rest.is_empty() {
+        let quoted = rest.strip_prefix('"')?;
+        let mut key = String::new();
+        let mut chars = quoted.char_indices();
+        let end = loop {
+            match chars.next()? {
+                (_, '\\') => key.push(chars.next()?.1),
+                (i, '"') => break i,
+                (_, c) => key.push(c),
+            }
+        };
+        if key.is_empty() {
+            return None;
+        }
+        keys.push(key);
+        rest = quoted[end + 1..].trim_start();
+        if !list && !rest.is_empty() {
+            return None;
+        }
+        if let Some(after) = rest.strip_prefix(',') {
+            rest = after.trim_start();
+        } else if !rest.is_empty() {
+            return None;
+        }
+    }
+    (!keys.is_empty()).then_some(keys)
 }
 
 /// Resolve a terminal key event to the key names dooit (textual) uses
@@ -273,6 +433,27 @@ mod tests {
         assert!(matches!(km.register("j", false), KeyMatch::NoMatch));
         assert!(matches!(km.register("ctrl+s", true), KeyMatch::Found(Action::StartSort)));
         assert!(matches!(km.register("q", true), KeyMatch::Found(Action::Quit)));
+    }
+
+    #[test]
+    fn keys_file() {
+        let mut km = KeyManager::from_file(
+            "# mine\nremove_node = \"d\"  # one key\nnext_sibling = [\"<down>\", \"J\"]\nedit_due = \"D\"\nshift_down = \"<ctrl+j>\"\n",
+        )
+        .unwrap();
+        assert!(matches!(km.register("d", true), KeyMatch::Found(Action::RemoveNode)));
+        assert!(matches!(km.register("J", true), KeyMatch::Found(Action::NextSibling)));
+        assert!(matches!(km.register("x", true), KeyMatch::NoMatch));
+
+        assert!(KeyManager::from_file("nope = \"z\"").err().unwrap().contains("unknown action `nope`"));
+        assert!(KeyManager::from_file("quit = \"g\"").err().unwrap().contains("is the start of `gg`"));
+        assert_eq!(parse_keys(r#"["<<", ",", "\""]"#).unwrap(), ["<<", ",", "\""]);
+        assert!(KeyManager::from_file("quit = z").is_err());
+        assert!(KeyManager::from_file("remove_node = \"d\"").err().unwrap().contains("bound to both"));
+
+        // what to_file writes reads back the same
+        let defaults = KeyManager::with_defaults();
+        assert_eq!(KeyManager::from_file(&defaults.to_file()).unwrap().bindings.len(), defaults.bindings.len());
         assert!(matches!(km.register("enter", true), KeyMatch::Found(Action::AddSibling)));
         assert!(matches!(km.register("enter", false), KeyMatch::NoMatch));
     }

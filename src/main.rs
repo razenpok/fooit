@@ -30,7 +30,7 @@ struct Cli {
     #[arg(short = 'v', long)]
     version: bool,
 
-    /// Path to config file (dooit's python configs are not supported and are ignored)
+    /// Path to the keys file (default: see config-loc)
     #[arg(short = 'c', long)]
     config: Option<PathBuf>,
 
@@ -44,8 +44,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show config location.
+    /// Show where the keys file is read from.
     ConfigLoc,
+    /// Print the current key bindings as a keys file, to start one from.
+    Keys,
+}
+
+fn keys_file(cli: &Cli) -> PathBuf {
+    match &cli.config {
+        Some(path) => path.clone(),
+        None => dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("fooit").join("keys.toml"),
+    }
+}
+
+/// The key bindings, from the keys file when there is one
+fn load_keys(cli: &Cli) -> Result<keys::KeyManager, String> {
+    let path = keys_file(cli);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => keys::KeyManager::from_file(&text).map_err(|e| format!("{}: {}", path.display(), e)),
+        Err(_) if cli.config.is_none() => Ok(keys::KeyManager::with_defaults()),
+        Err(e) => Err(format!("{}: {}", path.display(), e)),
+    }
 }
 
 fn data_dir() -> PathBuf {
@@ -102,16 +121,20 @@ fn main() {
     }
 
     if let Some(Command::ConfigLoc) = cli.command {
-        let dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("dooit");
-        println!("{}", dir.join("config.py").display());
+        println!("{}", keys_file(&cli).display());
         return;
     }
 
-    if let Some(config) = &cli.config {
-        if !config.is_file() {
-            println!("Config file {} not found.", config.display());
-            return;
+    let keys = match load_keys(&cli) {
+        Ok(keys) => keys,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
         }
+    };
+    if let Some(Command::Keys) = cli.command {
+        print!("{}", keys.to_file());
+        return;
     }
 
     if data_dir().join("todo.yaml").exists() {
@@ -134,6 +157,7 @@ fn main() {
     };
 
     let mut app = app::App::new(db);
+    app.keys = keys;
     app.start();
     if let Err(e) = run(app) {
         eprintln!("{}", e);

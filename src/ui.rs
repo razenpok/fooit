@@ -178,7 +178,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_bar(f.buffer_mut(), app, bar);
 
     if let Some(scroll) = app.help {
-        app.help = Some(draw_help(f.buffer_mut(), main, scroll));
+        app.help = Some(draw_help(f.buffer_mut(), app, main, scroll));
     } else if let Bar::Confirm(confirm) = &app.bar {
         let width = text_width(&confirm.message) as u16 + 4;
         let inner = popup(f.buffer_mut(), main, width.max(40), 3, "Confirm");
@@ -582,6 +582,18 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
 // Bars
 
 /// lazygit's "Action: key | Action: key" options line
+/// The options line for actions, with the first key each is bound to; unbound ones are left out
+fn action_options(app: &App, actions: &[(&str, Action)]) -> Line<'static> {
+    let pairs: Vec<(&str, String)> = actions.iter().filter_map(|(label, action)| Some((*label, bound_key(app, *action)?))).collect();
+    options(&pairs.iter().map(|(l, k)| (*l, k.as_str())).collect::<Vec<_>>())
+}
+
+/// The first key an action is bound to, as the options line shows it
+fn bound_key(app: &App, action: Action) -> Option<String> {
+    let key = &app.keys.bindings.iter().find(|(_, a)| *a == action)?.0;
+    Some(key.strip_prefix('<').and_then(|k| k.strip_suffix('>')).unwrap_or(key).to_string())
+}
+
 fn options(pairs: &[(&str, &str)]) -> Line<'static> {
     let text = pairs.iter().map(|(action, key)| format!("{}: {}", action, key)).collect::<Vec<_>>().join(" | ");
     Line::styled(text, Style::new().fg(OPTIONS))
@@ -604,23 +616,37 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             ("Put back", "esc"),
         ]),
         Bar::Status if app.mode == Mode::Normal && app.focused_tree() == FOUND => {
-            options(&[("Go to", "enter"), ("Complete", "c"), ("Edit", "i"), ("Close", "esc"), ("Keybindings", "?")])
+            let complete = bound_key(app, Action::ToggleComplete).unwrap_or_default();
+            let edit = bound_key(app, Action::EditDescription).unwrap_or_default();
+            options(&[("Go to", "enter"), ("Complete", &complete), ("Edit", &edit), ("Close", "esc")])
         }
         Bar::Status if app.mode == Mode::Insert => {
             options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")])
         }
-        Bar::Status if app.focus == Focus::Todos => options(&[
-            ("Add", "a"),
-            ("Add child", "A"),
-            ("Edit", "i"),
-            ("Complete", "c"),
-            ("Move", "m"),
-            ("Remove", "xx"),
-            ("Undo", "u"),
-            ("Show completed", "H"),
-            ("Keybindings", "?"),
-        ]),
-        Bar::Status => options(&[("Add", "a"), ("Edit", "i"), ("Remove", "xx"), ("Todos", "tab"), ("Keybindings", "?")]),
+        Bar::Status if app.focus == Focus::Todos => action_options(
+            app,
+            &[
+                ("Add", Action::AddSibling),
+                ("Add child", Action::AddChild),
+                ("Edit", Action::EditDescription),
+                ("Complete", Action::ToggleComplete),
+                ("Move", Action::StartMove),
+                ("Remove", Action::RemoveNode),
+                ("Undo", Action::Undo),
+                ("Show completed", Action::ToggleShowCompleted),
+                ("Keybindings", Action::ShowHelp),
+            ],
+        ),
+        Bar::Status => action_options(
+            app,
+            &[
+                ("Add", Action::AddSibling),
+                ("Edit", Action::EditDescription),
+                ("Remove", Action::RemoveNode),
+                ("Todos", Action::SwitchFocus),
+                ("Keybindings", Action::ShowHelp),
+            ],
+        ),
         Bar::Notification { message, level, .. } => {
             let color = match level {
                 Level::Info => Color::Green,
@@ -658,9 +684,9 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
 // Help screen
 
 /// The bindings with a description, keys for the same action joined on one line
-fn help_bindings() -> Vec<(String, Action)> {
+fn help_bindings(app: &App) -> Vec<(String, Action)> {
     let mut grouped: Vec<(String, Action)> = vec![];
-    for (key, action) in crate::keys::KeyManager::with_defaults().bindings {
+    for (key, action) in app.keys.bindings.iter().cloned() {
         if action.description().is_empty() {
             continue;
         }
@@ -673,8 +699,8 @@ fn help_bindings() -> Vec<(String, Action)> {
 }
 
 /// Draws the keybindings popup and returns the clamped scroll offset
-fn draw_help(buf: &mut Buffer, area: Rect, scroll: u16) -> u16 {
-    let bindings = help_bindings();
+fn draw_help(buf: &mut Buffer, app: &App, area: Rect, scroll: u16) -> u16 {
+    let bindings = help_bindings(app);
     let key_w = bindings.iter().map(|(k, _)| text_width(k)).max().unwrap_or(1);
     let desc_w = bindings.iter().map(|(_, a)| text_width(a.description())).max().unwrap_or(1);
 

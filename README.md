@@ -19,7 +19,7 @@ reimplemented, so data round-trips between the two apps.
 ## Usage
 
 ```
-fooit [--db PATH] [-v] [config-loc]
+fooit [--db PATH] [-c KEYS] [-v] [config-loc | keys]
 fooit buy milk
 ```
 
@@ -83,6 +83,21 @@ it where it is and `escape` puts it back where it was.
 
 Completed todos are hidden, once the cursor has left them and their children.
 
+## Rebinding keys
+
+Keys can be rebound in a keys file, at the path `fooit config-loc` prints (or the one
+given with `-c`). Each line binds an action to a key or a list of keys, in place of its
+defaults; `fooit keys` prints every action with its current keys to start from:
+
+```
+remove_node = "d"
+next_sibling = ["<down>", "J"]
+edit_due = "D"
+```
+
+Keys are written as in the help screen: `a`, `gg`, `<ctrl+s>`, `<down>`. fooit won't
+start with a key bound twice, or one that is the start of another (`x` next to `xx`).
+
 ## Mouse
 
 - Click a todo's status to toggle it, or the `▾` / `▸` in front of an item to collapse or
@@ -99,8 +114,8 @@ While editing, the mouse is left to the terminal, so text can be selected.
 
 ## Differences from dooit
 
-- dooit's Python config files (`config.py`) are not supported, and the layout and
-  colors follow lazygit instead of dooit.
+- dooit's Python config files (`config.py`) are not supported (keys can be rebound in
+  fooit's own keys file), and the layout and colors follow lazygit instead of dooit.
 - `dooit migrate` (v2 YAML import) is not ported; use dooit for that one-off step.
 - Items start expanded and completed todos start hidden.
 - Copied items can be pasted into any workspace, and are pasted next to the
