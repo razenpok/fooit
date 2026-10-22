@@ -1,40 +1,58 @@
-//! Storage layer. Uses the exact schema SQLAlchemy creates for dooit and
-//! reimplements the ORM hooks (ordering, completion propagation, recurrence).
+//! Storage layer: fooit's own SQLite database, with dooit's rules for ordering, completing
+//! parents and children, and recurrence. Rows have a local integer id for the app and a
+//! random uid that stays the same on every machine they are synced to
 
-use crate::dates;
+use crate::{dates, order};
 use chrono::{NaiveDateTime, TimeDelta};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 pub type Result<T> = std::result::Result<T, String>;
 
-const WORKSPACE_DDL: &str = "CREATE TABLE workspace (
-\tid INTEGER NOT NULL,
-\torder_index INTEGER NOT NULL,
-\tdescription VARCHAR NOT NULL,
-\tis_root BOOLEAN NOT NULL,
-\tparent_workspace_id INTEGER,
-\tPRIMARY KEY (id),
-\tFOREIGN KEY(parent_workspace_id) REFERENCES workspace (id)
-)";
+/// Bumped when the schema changes, kept in `PRAGMA user_version`
+const SCHEMA_VERSION: i64 = 1;
 
-const TODO_DDL: &str = "CREATE TABLE todo (
-\tid INTEGER NOT NULL,
-\torder_index INTEGER NOT NULL,
-\tdescription VARCHAR NOT NULL,
-\tdue DATETIME,
-\teffort INTEGER NOT NULL,
-\trecurrence DATETIME,
-\turgency INTEGER NOT NULL,
-\tpending BOOLEAN NOT NULL,
-\tparent_workspace_id INTEGER,
-\tparent_todo_id INTEGER,
-\tPRIMARY KEY (id),
-\tFOREIGN KEY(parent_workspace_id) REFERENCES workspace (id),
-\tFOREIGN KEY(parent_todo_id) REFERENCES todo (id)
-)";
+const SCHEMA: &str = "
+CREATE TABLE workspace (
+    id INTEGER PRIMARY KEY,
+    uid TEXT NOT NULL UNIQUE,
+    parent_id INTEGER,
+    position TEXT NOT NULL,
+    description TEXT NOT NULL,
+    is_root INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE todo (
+    id INTEGER PRIMARY KEY,
+    uid TEXT NOT NULL UNIQUE,
+    workspace_id INTEGER,
+    parent_id INTEGER,
+    position TEXT NOT NULL,
+    description TEXT NOT NULL,
+    due TEXT,
+    recurrence INTEGER,
+    urgency INTEGER NOT NULL,
+    pending INTEGER NOT NULL
+);
+";
+
+const DUE_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
+/// A new random id for a row, the same on every machine the row is synced to
+pub fn new_uid() -> String {
+    let mut bytes = [0u8; 12];
+    getrandom::getrandom(&mut bytes).expect("no random numbers");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn due_to_sql(due: NaiveDateTime) -> String {
+    due.format(DUE_FORMAT).to_string()
+}
+
+pub fn due_from_sql(value: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(value, DUE_FORMAT).ok()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Item {
@@ -71,7 +89,8 @@ pub enum Parent {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Workspace {
     pub id: i64,
-    pub order_index: i64,
+    pub uid: String,
+    pub position: String,
     pub description: String,
     pub is_root: bool,
     pub parent_workspace_id: Option<i64>,
@@ -80,10 +99,10 @@ pub struct Workspace {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Todo {
     pub id: i64,
-    pub order_index: i64,
+    pub uid: String,
+    pub position: String,
     pub description: String,
     pub due: Option<NaiveDateTime>,
-    pub effort: i64,
     pub recurrence: Option<TimeDelta>,
     pub urgency: i64,
     pub pending: bool,
@@ -122,7 +141,6 @@ pub enum SortField {
     Reverse,
     Description,
     Due,
-    Effort,
     Recurrence,
     Urgency,
     Pending,
@@ -134,7 +152,6 @@ impl SortField {
             SortField::Reverse => "reverse",
             SortField::Description => "description",
             SortField::Due => "due",
-            SortField::Effort => "effort",
             SortField::Recurrence => "recurrence",
             SortField::Urgency => "urgency",
             SortField::Pending => "pending",
@@ -149,7 +166,6 @@ impl SortField {
                 SortField::Reverse,
                 SortField::Description,
                 SortField::Due,
-                SortField::Effort,
                 SortField::Recurrence,
                 SortField::Urgency,
                 SortField::Pending,
@@ -161,8 +177,8 @@ impl SortField {
 /// Every row, to put back with `restore`
 #[derive(Clone)]
 pub struct Snapshot {
-    workspaces: Vec<Workspace>,
-    todos: Vec<Todo>,
+    pub workspaces: Vec<Workspace>,
+    pub todos: Vec<Todo>,
 }
 
 pub struct Db {
@@ -183,11 +199,103 @@ fn err(e: rusqlite::Error) -> String {
 }
 
 fn opt_dt(value: Option<NaiveDateTime>) -> Option<String> {
-    value.map(dates::datetime_to_sql)
+    value.map(due_to_sql)
 }
 
-fn opt_td(value: Option<TimeDelta>) -> Option<String> {
-    value.map(dates::interval_to_sql)
+fn opt_td(value: Option<TimeDelta>) -> Option<i64> {
+    value.map(|td| td.num_seconds())
+}
+
+/// Every workspace and todo in a database
+pub fn read_rows(conn: &Connection) -> Result<(HashMap<i64, Workspace>, HashMap<i64, Todo>)> {
+    let mut workspaces = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT id, uid, position, description, is_root, parent_id FROM workspace")
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(Workspace {
+                id: r.get(0)?,
+                uid: r.get(1)?,
+                position: r.get(2)?,
+                description: r.get(3)?,
+                is_root: r.get::<_, i64>(4)? != 0,
+                parent_workspace_id: r.get(5)?,
+            })
+        })
+        .map_err(err)?;
+    for row in rows {
+        let w = row.map_err(err)?;
+        workspaces.insert(w.id, w);
+    }
+
+    let mut todos = HashMap::new();
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, uid, position, description, due, recurrence, urgency, pending, workspace_id, parent_id \
+             FROM todo",
+        )
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(Todo {
+                id: r.get(0)?,
+                uid: r.get(1)?,
+                position: r.get(2)?,
+                description: r.get(3)?,
+                due: r.get::<_, Option<String>>(4)?.and_then(|s| due_from_sql(&s)),
+                recurrence: r.get::<_, Option<i64>>(5)?.map(TimeDelta::seconds),
+                urgency: r.get(6)?,
+                pending: r.get::<_, i64>(7)? != 0,
+                parent_workspace_id: r.get(8)?,
+                parent_todo_id: r.get(9)?,
+            })
+        })
+        .map_err(err)?;
+    for row in rows {
+        let t = row.map_err(err)?;
+        todos.insert(t.id, t);
+    }
+    Ok((workspaces, todos))
+}
+
+/// Write a workspace, with its id when it has one
+pub fn write_workspace(conn: &Connection, w: &Workspace) -> Result<i64> {
+    conn.execute(
+        "INSERT OR REPLACE INTO workspace (id, uid, parent_id, position, description, is_root) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![(w.id > 0).then_some(w.id), w.uid, w.parent_workspace_id, w.position, w.description, w.is_root as i64],
+    )
+    .map_err(err)?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Write a todo, with its id when it has one
+pub fn write_todo(conn: &Connection, t: &Todo) -> Result<i64> {
+    if t.parent_workspace_id.is_none() && t.parent_todo_id.is_none() {
+        return Err("Todo must have a parent workspace or todo".into());
+    }
+    if t.parent_workspace_id.is_some() && t.parent_todo_id.is_some() {
+        return Err("Todo cannot have both a parent workspace and todo".into());
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO todo (id, uid, workspace_id, parent_id, position, description, due, recurrence, \
+         urgency, pending) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            (t.id > 0).then_some(t.id),
+            t.uid,
+            t.parent_workspace_id,
+            t.parent_todo_id,
+            t.position,
+            t.description,
+            opt_dt(t.due),
+            opt_td(t.recurrence),
+            t.urgency.clamp(1, 4),
+            t.pending as i64,
+        ],
+    )
+    .map_err(err)?;
+    Ok(conn.last_insert_rowid())
 }
 
 impl Db {
@@ -197,21 +305,8 @@ impl Db {
         }
 
         let conn = Connection::open(path).map_err(err)?;
-        // python's sqlite3 (and so dooit) runs without foreign key enforcement
-        conn.execute_batch("PRAGMA foreign_keys = OFF").map_err(err)?;
-        for (table, ddl) in [("workspace", WORKSPACE_DDL), ("todo", TODO_DDL)] {
-            let exists: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?1",
-                    [table],
-                    |r| r.get(0),
-                )
-                .optional()
-                .map_err(err)?;
-            if exists.is_none() {
-                conn.execute(ddl, []).map_err(err)?;
-            }
-        }
+        conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(err)?;
+        Self::create_schema(&conn)?;
 
         let mut db = Db {
             conn,
@@ -226,6 +321,26 @@ impl Db {
         db.load()?;
         db.last_modified = db.modified();
         Ok(db)
+    }
+
+    /// Create the tables in a new database, or refuse one that is not fooit's
+    pub fn create_schema(conn: &Connection) -> Result<()> {
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(err)?;
+        if version == SCHEMA_VERSION {
+            return Ok(());
+        }
+        let tables: i64 = conn
+            .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0))
+            .map_err(err)?;
+        if version != 0 || tables != 0 {
+            return Err(if version > SCHEMA_VERSION {
+                "The database was made by a newer fooit".into()
+            } else {
+                "Not a fooit database (a dooit database is imported on the first start)".into()
+            });
+        }
+        conn.execute_batch(&format!("BEGIN; {SCHEMA} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"))
+            .map_err(err)
     }
 
     fn modified(&self) -> Option<SystemTime> {
@@ -244,63 +359,7 @@ impl Db {
     }
 
     pub fn load(&mut self) -> Result<()> {
-        let mut workspaces = HashMap::new();
-        {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT id, order_index, description, is_root, parent_workspace_id FROM workspace")
-                .map_err(err)?;
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok(Workspace {
-                        id: r.get(0)?,
-                        order_index: r.get::<_, Option<i64>>(1)?.unwrap_or(-1),
-                        description: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                        is_root: r.get::<_, Option<i64>>(3)?.unwrap_or(0) != 0,
-                        parent_workspace_id: r.get(4)?,
-                    })
-                })
-                .map_err(err)?;
-            for row in rows {
-                let w = row.map_err(err)?;
-                workspaces.insert(w.id, w);
-            }
-        }
-
-        let mut todos = HashMap::new();
-        {
-            let mut stmt = self
-                .conn
-                .prepare(
-                    "SELECT id, order_index, description, due, effort, recurrence, urgency, pending, \
-                     parent_workspace_id, parent_todo_id FROM todo",
-                )
-                .map_err(err)?;
-            let rows = stmt
-                .query_map([], |r| {
-                    Ok(Todo {
-                        id: r.get(0)?,
-                        order_index: r.get::<_, Option<i64>>(1)?.unwrap_or(-1),
-                        description: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                        due: r
-                            .get::<_, Option<String>>(3)?
-                            .and_then(|s| dates::datetime_from_sql(&s)),
-                        effort: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
-                        recurrence: r
-                            .get::<_, Option<String>>(5)?
-                            .and_then(|s| dates::interval_from_sql(&s)),
-                        urgency: r.get::<_, Option<i64>>(6)?.unwrap_or(1),
-                        pending: r.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
-                        parent_workspace_id: r.get(8)?,
-                        parent_todo_id: r.get(9)?,
-                    })
-                })
-                .map_err(err)?;
-            for row in rows {
-                let t = row.map_err(err)?;
-                todos.insert(t.id, t);
-            }
-        }
+        let (workspaces, todos) = read_rows(&self.conn)?;
 
         let mut ws_children: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
         for w in workspaces.values() {
@@ -309,7 +368,10 @@ impl Db {
             }
         }
         for list in ws_children.values_mut() {
-            list.sort_by_key(|id| (workspaces[id].order_index, *id));
+            list.sort_by(|a, b| {
+                let (a, b) = (&workspaces[a], &workspaces[b]);
+                (&a.position, &a.uid).cmp(&(&b.position, &b.uid))
+            });
         }
 
         let mut todo_children: HashMap<Parent, Vec<i64>> = HashMap::new();
@@ -319,7 +381,10 @@ impl Db {
             }
         }
         for list in todo_children.values_mut() {
-            list.sort_by_key(|id| (todos[id].order_index, *id));
+            list.sort_by(|a, b| {
+                let (a, b) = (&todos[a], &todos[b]);
+                (&a.position, &a.uid).cmp(&(&b.position, &b.uid))
+            });
         }
 
         self.workspaces = workspaces;
@@ -425,70 +490,66 @@ impl Db {
     // ------------------------------------------------------------------
     // Helpers inside transactions
 
+    fn position(&self, item: Item) -> &str {
+        match item {
+            Item::Ws(id) => self.workspaces.get(&id).map(|w| w.position.as_str()),
+            Item::Todo(id) => self.todos.get(&id).map(|t| t.position.as_str()),
+        }
+        .unwrap_or("")
+    }
+
+    fn set_position(tx: &Transaction, item: Item, position: &str) -> Result<()> {
+        match item {
+            Item::Ws(id) => tx.execute("UPDATE workspace SET position = ?1 WHERE id = ?2", params![position, id]),
+            Item::Todo(id) => tx.execute("UPDATE todo SET position = ?1 WHERE id = ?2", params![position, id]),
+        }
+        .map_err(err)?;
+        Ok(())
+    }
+
+    /// Give every item in the list a new position, in list order
     fn set_order(tx: &Transaction, items: &[Item]) -> Result<()> {
-        for (index, item) in items.iter().enumerate() {
-            match item {
-                Item::Ws(id) => tx
-                    .execute("UPDATE workspace SET order_index = ?1 WHERE id = ?2", params![index as i64, id]),
-                Item::Todo(id) => tx
-                    .execute("UPDATE todo SET order_index = ?1 WHERE id = ?2", params![index as i64, id]),
-            }
-            .map_err(err)?;
+        for (item, position) in items.iter().zip(order::spread(items.len())) {
+            Self::set_position(tx, *item, &position)?;
         }
         Ok(())
     }
 
+    /// A position for the item at `index` in `items`, between its neighbours there. The
+    /// neighbours are renumbered when they leave no room, which only happens when two
+    /// machines picked the same position
+    fn place(&self, tx: &Transaction, items: &[Item], index: usize) -> Result<String> {
+        let before = index.checked_sub(1).map(|i| self.position(items[i]));
+        let after = items.get(index + 1).map(|i| self.position(*i));
+        if let (Some(a), Some(b)) = (before, after) {
+            if a >= b {
+                Self::set_order(tx, items)?;
+                let positions = order::spread(items.len());
+                return Ok(positions[index].clone());
+            }
+        }
+        let position = order::between(before, after);
+        Self::set_position(tx, items[index], &position)?;
+        Ok(position)
+    }
+
     fn set_parent(tx: &Transaction, item: Item, parent: Parent) -> Result<()> {
         match (item, parent) {
-            (Item::Ws(id), Parent::Ws(p)) => tx
-                .execute("UPDATE workspace SET parent_workspace_id = ?1 WHERE id = ?2", params![p, id]),
+            (Item::Ws(id), Parent::Ws(p)) => {
+                tx.execute("UPDATE workspace SET parent_id = ?1 WHERE id = ?2", params![p, id])
+            }
             (Item::Todo(id), Parent::Ws(p)) => tx.execute(
-                "UPDATE todo SET parent_workspace_id = ?1, parent_todo_id = NULL WHERE id = ?2",
+                "UPDATE todo SET workspace_id = ?1, parent_id = NULL WHERE id = ?2",
                 params![p, id],
             ),
             (Item::Todo(id), Parent::Todo(p)) => tx.execute(
-                "UPDATE todo SET parent_workspace_id = NULL, parent_todo_id = ?1 WHERE id = ?2",
+                "UPDATE todo SET workspace_id = NULL, parent_id = ?1 WHERE id = ?2",
                 params![p, id],
             ),
             (Item::Ws(_), Parent::Todo(_)) => return Err("Cannot add a workspace to a todo".into()),
         }
         .map_err(err)?;
         Ok(())
-    }
-
-    fn insert_workspace_row(tx: &Transaction, w: &Workspace) -> Result<i64> {
-        tx.execute(
-            "INSERT INTO workspace (order_index, description, is_root, parent_workspace_id) VALUES (?1, ?2, ?3, ?4)",
-            params![w.order_index, w.description, w.is_root as i64, w.parent_workspace_id],
-        )
-        .map_err(err)?;
-        Ok(tx.last_insert_rowid())
-    }
-
-    fn insert_todo_row(tx: &Transaction, t: &Todo) -> Result<i64> {
-        if t.parent_workspace_id.is_none() && t.parent_todo_id.is_none() {
-            return Err("Todo must have a parent workspace or todo".into());
-        }
-        if t.parent_workspace_id.is_some() && t.parent_todo_id.is_some() {
-            return Err("Todo cannot have both a parent workspace and todo".into());
-        }
-        tx.execute(
-            "INSERT INTO todo (order_index, description, due, effort, recurrence, urgency, pending, \
-             parent_workspace_id, parent_todo_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                t.order_index,
-                t.description,
-                opt_dt(t.due),
-                t.effort,
-                opt_td(t.recurrence),
-                t.urgency.clamp(1, 4),
-                t.pending as i64,
-                t.parent_workspace_id,
-                t.parent_todo_id,
-            ],
-        )
-        .map_err(err)?;
-        Ok(tx.last_insert_rowid())
     }
 
     fn new_todo(parent: Parent) -> Todo {
@@ -498,10 +559,10 @@ impl Db {
         };
         Todo {
             id: 0,
-            order_index: -1,
+            uid: new_uid(),
+            position: String::new(),
             description: String::new(),
             due: None,
-            effort: 0,
             recurrence: None,
             urgency: 1,
             pending: true,
@@ -517,12 +578,13 @@ impl Db {
         if let Some(id) = self.root_id() {
             return Ok(id);
         }
-        let tx = self.conn.transaction().map_err(err)?;
-        let id = Self::insert_workspace_row(
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
+        let id = write_workspace(
             &tx,
             &Workspace {
                 id: 0,
-                order_index: -1,
+                uid: new_uid(),
+                position: String::new(),
                 description: String::new(),
                 is_root: true,
                 parent_workspace_id: None,
@@ -550,20 +612,21 @@ impl Db {
         description: &str,
     ) -> Result<Item> {
         let mut siblings = self.children(parent, todo);
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
 
         let item = if todo {
             let todo = Todo { description: description.to_string(), ..Self::new_todo(parent) };
-            Item::Todo(Self::insert_todo_row(&tx, &todo)?)
+            Item::Todo(write_todo(&tx, &todo)?)
         } else {
             let Parent::Ws(pid) = parent else {
                 return Err("Cannot add a workspace to a todo".into());
             };
-            Item::Ws(Self::insert_workspace_row(
+            Item::Ws(write_workspace(
                 &tx,
                 &Workspace {
                     id: 0,
-                    order_index: -1,
+                    uid: new_uid(),
+                    position: String::new(),
                     description: description.to_string(),
                     is_root: false,
                     parent_workspace_id: Some(pid),
@@ -573,7 +636,7 @@ impl Db {
 
         let position = position.unwrap_or(siblings.len()).min(siblings.len());
         siblings.insert(position, item);
-        Self::set_order(&tx, &siblings)?;
+        self.place(&tx, &siblings, position)?;
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(item)
@@ -620,7 +683,7 @@ impl Db {
         let mut todos = HashSet::new();
         self.collect_descendants(item, &mut ws, &mut todos);
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         for id in &todos {
             tx.execute("DELETE FROM todo WHERE id = ?1", [id]).map_err(err)?;
         }
@@ -637,7 +700,7 @@ impl Db {
                 if w.description == description {
                     return Ok(());
                 }
-                let tx = self.conn.transaction().map_err(err)?;
+                let tx = self.conn.unchecked_transaction().map_err(err)?;
                 tx.execute(
                     "UPDATE workspace SET description = ?1 WHERE id = ?2",
                     params![description, id],
@@ -687,17 +750,17 @@ impl Db {
                 .unwrap_or(true)
         });
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
 
         // update_children_to_pending
         if new.pending && !any_child_pending {
-            tx.execute("UPDATE todo SET pending = 1 WHERE parent_todo_id = ?1", [new.id])
+            tx.execute("UPDATE todo SET pending = 1 WHERE parent_id = ?1", [new.id])
                 .map_err(err)?;
         }
 
         // update_children_to_completed
         if !new.pending {
-            tx.execute("UPDATE todo SET pending = 0 WHERE parent_todo_id = ?1", [new.id])
+            tx.execute("UPDATE todo SET pending = 0 WHERE parent_id = ?1", [new.id])
                 .map_err(err)?;
         }
 
@@ -724,12 +787,11 @@ impl Db {
         }
 
         tx.execute(
-            "UPDATE todo SET description = ?1, due = ?2, effort = ?3, recurrence = ?4, urgency = ?5, \
-             pending = ?6 WHERE id = ?7",
+            "UPDATE todo SET description = ?1, due = ?2, recurrence = ?3, urgency = ?4, pending = ?5 \
+             WHERE id = ?6",
             params![
                 new.description,
                 opt_dt(new.due),
-                new.effort,
                 opt_td(new.recurrence),
                 new.urgency,
                 new.pending as i64,
@@ -759,8 +821,8 @@ impl Db {
         };
         siblings.swap(index, other);
 
-        let tx = self.conn.transaction().map_err(err)?;
-        Self::set_order(&tx, &siblings)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
+        self.place(&tx, &siblings, other)?;
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(true)
@@ -787,10 +849,9 @@ impl Db {
         siblings.remove(index);
         new_siblings.push(item);
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         Self::set_parent(&tx, item, new_parent.as_parent())?;
-        Self::set_order(&tx, &siblings)?;
-        Self::set_order(&tx, &new_siblings)?;
+        self.place(&tx, &new_siblings, new_siblings.len() - 1)?;
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(Some(new_parent))
@@ -805,17 +866,13 @@ impl Db {
             return Ok(false);
         };
 
-        let mut siblings = self.siblings(item);
-        siblings.retain(|s| *s != item);
-
         let mut new_siblings = self.siblings(parent);
         let parent_index = new_siblings.iter().position(|s| *s == parent).unwrap_or(0);
         new_siblings.insert(parent_index + 1, item);
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         Self::set_parent(&tx, item, grandparent)?;
-        Self::set_order(&tx, &siblings)?;
-        Self::set_order(&tx, &new_siblings)?;
+        self.place(&tx, &new_siblings, parent_index + 1)?;
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(true)
@@ -877,35 +934,14 @@ impl Db {
 
     /// Replace every row with the ones in a snapshot, ids included
     pub fn restore(&mut self, snapshot: &Snapshot) -> Result<()> {
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         tx.execute("DELETE FROM todo", []).map_err(err)?;
         tx.execute("DELETE FROM workspace", []).map_err(err)?;
         for w in &snapshot.workspaces {
-            tx.execute(
-                "INSERT INTO workspace (id, order_index, description, is_root, parent_workspace_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![w.id, w.order_index, w.description, w.is_root as i64, w.parent_workspace_id],
-            )
-            .map_err(err)?;
+            write_workspace(&tx, w)?;
         }
         for t in &snapshot.todos {
-            tx.execute(
-                "INSERT INTO todo (id, order_index, description, due, effort, recurrence, urgency, pending, \
-                 parent_workspace_id, parent_todo_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    t.id,
-                    t.order_index,
-                    t.description,
-                    opt_dt(t.due),
-                    t.effort,
-                    opt_td(t.recurrence),
-                    t.urgency,
-                    t.pending as i64,
-                    t.parent_workspace_id,
-                    t.parent_todo_id,
-                ],
-            )
-            .map_err(err)?;
+            write_todo(&tx, t)?;
         }
         tx.commit().map_err(err)?;
         self.finish()
@@ -913,23 +949,17 @@ impl Db {
 
     /// Move the item, with everything beneath it, under a parent: right after `after`, or first
     pub fn move_to(&mut self, item: Item, parent: Parent, after: Option<Item>) -> Result<()> {
-        let Some(old_parent) = self.parent_of(item) else {
+        if self.parent_of(item).is_none() {
             return Ok(());
-        };
-        let mut old_siblings = self.children(old_parent, item.is_todo());
-        old_siblings.retain(|s| *s != item);
-
+        }
         let mut siblings = self.children(parent, item.is_todo());
         siblings.retain(|s| *s != item);
         let index = after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
         siblings.insert(index, item);
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         Self::set_parent(&tx, item, parent)?;
-        if old_parent != parent {
-            Self::set_order(&tx, &old_siblings)?;
-        }
-        Self::set_order(&tx, &siblings)?;
+        self.place(&tx, &siblings, index)?;
         tx.commit().map_err(err)?;
         self.finish()
     }
@@ -969,55 +999,56 @@ impl Db {
                         let ord = match field {
                             SortField::Description => ta.description.cmp(&tb.description),
                             SortField::Due => nulls_last(&ta.due, &tb.due),
-                            SortField::Effort => ta.effort.cmp(&tb.effort),
                             SortField::Recurrence => nulls_last(&ta.recurrence, &tb.recurrence),
                             SortField::Urgency => ta.urgency.cmp(&tb.urgency),
                             SortField::Pending => {
                                 let key = |t: &Todo| {
-                                    (!t.pending, t.due.unwrap_or(NaiveDateTime::MAX), t.order_index)
+                                    (!t.pending, t.due.unwrap_or(NaiveDateTime::MAX), t.position.clone(), t.uid.clone())
                                 };
                                 return key(ta).cmp(&key(tb));
                             }
                             SortField::Reverse => unreachable!(),
                         };
-                        ord.then(ta.id.cmp(&tb.id))
+                        ord.then(ta.position.cmp(&tb.position)).then(ta.uid.cmp(&tb.uid))
                     });
                 }
             },
         }
 
-        let tx = self.conn.transaction().map_err(err)?;
+        let tx = self.conn.unchecked_transaction().map_err(err)?;
         Self::set_order(&tx, &siblings)?;
         { tx.commit().map_err(err)?; self.finish() }
     }
 
-    fn clone_todo_rec(&self, tx: &Transaction, source: i64, parent: Parent, order_index: i64) -> Result<i64> {
+    fn clone_todo_rec(&self, tx: &Transaction, source: i64, parent: Parent, position: &str) -> Result<i64> {
         let mut todo = self.todos.get(&source).cloned().ok_or("No model in clipboard")?;
         let (ws, parent_todo) = match parent {
             Parent::Ws(id) => (Some(id), None),
             Parent::Todo(id) => (None, Some(id)),
         };
+        todo.id = 0;
+        todo.uid = new_uid();
         todo.parent_workspace_id = ws;
         todo.parent_todo_id = parent_todo;
-        todo.order_index = order_index;
-        let new_id = Self::insert_todo_row(tx, &todo)?;
+        todo.position = position.to_string();
+        let new_id = write_todo(tx, &todo)?;
 
         for child in self.children(Parent::Todo(source), true) {
             if let Item::Todo(cid) = child {
-                let index = self.todos[&cid].order_index;
-                self.clone_todo_rec(tx, cid, Parent::Todo(new_id), index)?;
+                self.clone_todo_rec(tx, cid, Parent::Todo(new_id), &self.todos[&cid].position)?;
             }
         }
         Ok(new_id)
     }
 
-    fn clone_ws_rec(&self, tx: &Transaction, source: i64, parent: i64, order_index: i64) -> Result<i64> {
+    fn clone_ws_rec(&self, tx: &Transaction, source: i64, parent: i64, position: &str) -> Result<i64> {
         let ws = self.workspaces.get(&source).ok_or("No model in clipboard")?;
-        let new_id = Self::insert_workspace_row(
+        let new_id = write_workspace(
             tx,
             &Workspace {
                 id: 0,
-                order_index,
+                uid: new_uid(),
+                position: position.to_string(),
                 description: ws.description.clone(),
                 is_root: false,
                 parent_workspace_id: Some(parent),
@@ -1026,14 +1057,12 @@ impl Db {
 
         for child in self.children(Parent::Ws(source), false) {
             if let Item::Ws(cid) = child {
-                let index = self.workspaces[&cid].order_index;
-                self.clone_ws_rec(tx, cid, new_id, index)?;
+                self.clone_ws_rec(tx, cid, new_id, &self.workspaces[&cid].position)?;
             }
         }
         for child in self.children(Parent::Ws(source), true) {
             if let Item::Todo(cid) = child {
-                let index = self.todos[&cid].order_index;
-                self.clone_todo_rec(tx, cid, Parent::Ws(new_id), index)?;
+                self.clone_todo_rec(tx, cid, Parent::Ws(new_id), &self.todos[&cid].position)?;
             }
         }
         Ok(new_id)
@@ -1048,14 +1077,14 @@ impl Db {
         let tx = self.conn.unchecked_transaction().map_err(err)?;
 
         let new_item = match (source, parent) {
-            (Item::Todo(id), _) => Item::Todo(self.clone_todo_rec(&tx, id, parent, -1)?),
-            (Item::Ws(id), Parent::Ws(pid)) => Item::Ws(self.clone_ws_rec(&tx, id, pid, -1)?),
+            (Item::Todo(id), _) => Item::Todo(self.clone_todo_rec(&tx, id, parent, "")?),
+            (Item::Ws(id), Parent::Ws(pid)) => Item::Ws(self.clone_ws_rec(&tx, id, pid, "")?),
             (Item::Ws(_), Parent::Todo(_)) => return Err("Cannot add a workspace to a todo".into()),
         };
 
         let position = position.unwrap_or(siblings.len()).min(siblings.len());
         siblings.insert(position, new_item);
-        Self::set_order(&tx, &siblings)?;
+        self.place(&tx, &siblings, position)?;
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(new_item)
@@ -1159,43 +1188,5 @@ mod tests {
         let kids = db.children(copy.as_parent(), true);
         assert_eq!(kids.len(), 1);
         assert_eq!(db.description(kids[0]), "child");
-    }
-}
-
-#[cfg(test)]
-mod compat {
-    use super::*;
-
-    /// Run with COMPAT_DB pointing at a database written by python dooit
-    #[test]
-    #[ignore]
-    fn read_and_modify_python_db() {
-        let path = std::env::var("COMPAT_DB").unwrap();
-        let mut db = Db::open(Path::new(&path)).unwrap();
-        let root = db.root_id().unwrap();
-        for w in db.children(Parent::Ws(root), false) {
-            println!("ws {:?} {}", w, db.description(w));
-            let Item::Ws(wid) = w else { continue };
-            for t in db.children(Parent::Ws(wid), true) {
-                let Item::Todo(id) = t else { continue };
-                let todo = db.todo(id).unwrap().clone();
-                println!("  todo {} due={:?} rec={:?} urg={} pending={}", todo.description, todo.due, todo.recurrence, todo.urgency, todo.pending);
-                for c in db.children(t.as_parent(), true) {
-                    println!("    child {}", db.description(c));
-                }
-            }
-            // write a todo with a due date and recurrence for python to read back
-            let new = db.insert(Parent::Ws(wid), true, None).unwrap();
-            let Item::Todo(nid) = new else { unreachable!() };
-            let mut t = db.todo(nid).unwrap().clone();
-            t.description = "from fooit".into();
-            t.due = crate::dates::parse_due("2031-02-03 04:05");
-            t.recurrence = Some(TimeDelta::hours(36));
-            t.urgency = 3;
-            db.update_todo(t).unwrap();
-            let child = db.add_child(new).unwrap();
-            db.set_description(child, "fooit child").unwrap();
-            break;
-        }
     }
 }

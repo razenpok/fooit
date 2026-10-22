@@ -1,43 +1,8 @@
-//! Date helpers: SQLAlchemy-compatible storage formats, due-date parsing
-//! (a practical subset of `dateutil.parser.parse`) and recurrence strings.
+//! Date helpers: due-date parsing (a practical subset of `dateutil.parser.parse`) and
+//! recurrence strings.
 
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Weekday};
 use regex::Regex;
-
-const SQL_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.6f";
-
-fn epoch() -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(1970, 1, 1)
-        .unwrap()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-}
-
-/// SQLAlchemy stores `DateTime` on SQLite as `YYYY-MM-DD HH:MM:SS.ffffff`
-pub fn datetime_to_sql(dt: NaiveDateTime) -> String {
-    dt.format(SQL_FORMAT).to_string()
-}
-
-pub fn datetime_from_sql(value: &str) -> Option<NaiveDateTime> {
-    let value = value.trim();
-    for fmt in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M"] {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(value, fmt) {
-            return Some(dt);
-        }
-    }
-    NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .ok()
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-}
-
-/// SQLAlchemy stores `Interval` on SQLite as a datetime relative to the unix epoch
-pub fn interval_to_sql(td: TimeDelta) -> String {
-    datetime_to_sql(epoch() + td)
-}
-
-pub fn interval_from_sql(value: &str) -> Option<TimeDelta> {
-    datetime_from_sql(value).map(|dt| dt - epoch())
-}
 
 pub fn now() -> NaiveDateTime {
     Local::now().naive_local()
@@ -634,15 +599,6 @@ mod tests {
             let (text, due, urgency) = split_due(plain);
             assert_eq!((text.as_str(), due, urgency), (plain, None, None), "{plain}");
         }
-    }
-
-    #[test]
-    fn sql_roundtrip() {
-        let dt = NaiveDate::from_ymd_opt(2024, 5, 6).unwrap().and_hms_opt(7, 8, 0).unwrap();
-        assert_eq!(datetime_to_sql(dt), "2024-05-06 07:08:00.000000");
-        assert_eq!(datetime_from_sql("2024-05-06 07:08:00.000000"), Some(dt));
-        assert_eq!(interval_to_sql(Duration::days(7)), "1970-01-08 00:00:00.000000");
-        assert_eq!(interval_from_sql("1970-01-01 03:00:00.000000"), Some(Duration::hours(3)));
     }
 
     #[test]

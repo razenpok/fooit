@@ -1,6 +1,8 @@
 mod app;
 mod dates;
 mod db;
+mod migrate;
+mod order;
 mod input;
 mod keys;
 mod ui;
@@ -20,11 +22,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The version of dooit whose behaviour and database this port follows
+/// The version of dooit whose behaviour this port follows
 const DOOIT_VERSION: &str = "3.3.4";
 
 #[derive(Parser)]
-#[command(name = "fooit", about = "A terminal todo manager that shares dooit's database", disable_version_flag = true)]
+#[command(name = "fooit", about = "A terminal todo manager", disable_version_flag = true)]
 struct Cli {
     /// Show version and exit.
     #[arg(short = 'v', long)]
@@ -68,7 +70,26 @@ fn load_keys(cli: &Cli) -> Result<keys::KeyManager, String> {
 }
 
 fn data_dir() -> PathBuf {
-    dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("dooit")
+    dirs::data_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The database to use: `--db`, or fooit's own, which starts as a copy of dooit's when there is one
+fn db_path(cli_db: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(path) = cli_db {
+        return Ok(expand_user(path));
+    }
+    let path = data_dir().join("fooit").join("fooit.db");
+    let dooit = data_dir().join("dooit").join("dooit.db");
+    if !path.exists() && dooit.exists() {
+        migrate::from_dooit(&dooit, &path).map_err(|e| format!("Could not import {}: {}", dooit.display(), e))?;
+        eprintln!("Imported dooit's todos from {}", dooit.display());
+    }
+    Ok(path)
+}
+
+fn open_db(cli_db: Option<&str>) -> Result<db::Db, String> {
+    let path = db_path(cli_db)?;
+    db::Db::open(&path).map_err(|e| format!("Could not open database {}: {}", path.display(), e))
 }
 
 fn expand_user(path: &str) -> PathBuf {
@@ -103,8 +124,8 @@ fn main() {
             if task.is_empty() || matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
                 e.exit();
             }
-            let path = data_dir().join("dooit.db");
-            match db::Db::open(&path).and_then(|mut db| add_task(&mut db, task)) {
+            // `--db` is not read here, as anything that fails to parse ends up here
+            match open_db(None).and_then(|mut db| add_task(&mut db, task)) {
                 Ok(ws) => println!("Added \"{}\" to {}", task, ws),
                 Err(e) => {
                     eprintln!("{}", e);
@@ -137,21 +158,10 @@ fn main() {
         return;
     }
 
-    if data_dir().join("todo.yaml").exists() {
-        eprintln!("Found todos for v2.");
-        eprintln!("Please migrate to v3 using `dooit migrate` first.");
-        return;
-    }
-
-    let db_path = match &cli.db {
-        Some(path) => expand_user(path),
-        None => data_dir().join("dooit.db"),
-    };
-
-    let db = match db::Db::open(&db_path) {
+    let db = match open_db(cli.db.as_deref()) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Could not open database {}: {}", db_path.display(), e);
+            eprintln!("{}", e);
             std::process::exit(1);
         }
     };

@@ -350,6 +350,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "getrandom",
  "libc",
  "ratatui",
  "regex",

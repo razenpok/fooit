@@ -19,25 +19,22 @@ fn seed(path: &Path, workspaces: i64, children: i64) {
 
     let mut conn = Connection::open(path).unwrap();
     let tx = conn.transaction().unwrap();
-    tx.execute(
-        "INSERT INTO workspace (id, order_index, description, is_root, parent_workspace_id) VALUES (1, 0, '', 1, NULL)",
-        [],
-    )
-    .unwrap();
-    let due = dates::datetime_to_sql(dates::now());
+    tx.execute("INSERT INTO workspace (id, uid, position, description, is_root, parent_id) VALUES (1, 'root', '', '', 1, NULL)", [])
+        .unwrap();
+    let due = db::due_to_sql(dates::now());
     let per_ws = TOTAL / workspaces;
     let mut id = 0;
     for w in 0..workspaces {
         let ws_id = w + 2;
         tx.execute(
-            "INSERT INTO workspace (id, order_index, description, is_root, parent_workspace_id) VALUES (?1, ?2, ?3, 0, 1)",
-            params![ws_id, w, format!("Workspace {w}")],
+            "INSERT INTO workspace (id, uid, position, description, is_root, parent_id) VALUES (?1, ?2, ?3, ?4, 0, 1)",
+            params![ws_id, format!("ws{ws_id}"), format!("{w:08}"), format!("Workspace {w}")],
         )
         .unwrap();
         let mut stmt = tx
             .prepare(
-                "INSERT INTO todo (id, order_index, description, due, effort, recurrence, urgency, pending, \
-                 parent_workspace_id, parent_todo_id) VALUES (?1, ?2, ?3, ?4, 0, NULL, ?5, ?6, ?7, ?8)",
+                "INSERT INTO todo (id, uid, position, description, due, recurrence, urgency, pending, \
+                 workspace_id, parent_id) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9)",
             )
             .unwrap();
         let mut top = 0;
@@ -47,7 +44,8 @@ fn seed(path: &Path, workspaces: i64, children: i64) {
             let parent = id;
             stmt.execute(params![
                 id,
-                top,
+                format!("t{id}"),
+                format!("{top:08}"),
                 format!("Todo {id} with a reasonably long description"),
                 (id % 3 == 0).then(|| due.clone()),
                 id % 4 + 1,
@@ -60,7 +58,7 @@ fn seed(path: &Path, workspaces: i64, children: i64) {
             top += 1;
             for c in 0..children.min(per_ws - made) {
                 id += 1;
-                stmt.execute(params![id, c, format!("Child {id}"), None::<String>, 1, true, None::<i64>, parent])
+                stmt.execute(params![id, format!("t{id}"), format!("{c:08}"), format!("Child {id}"), None::<String>, 1, true, None::<i64>, parent])
                     .unwrap();
                 made += 1;
             }

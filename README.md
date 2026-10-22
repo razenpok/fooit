@@ -5,16 +5,16 @@ started as a port of [dooit](https://github.com/dooit-org/dooit) 3.3.4 and keeps
 its keys and its database. It looks like [lazygit](https://github.com/jesseduffield/lazygit),
 in the terminal's own colors.
 
-fooit uses the same SQLite schema and the same database file as dooit, so both can
-be used on the same todos:
+fooit keeps its todos in its own SQLite database:
 
-- macOS: `~/Library/Application Support/dooit/dooit.db`
-- Linux: `$XDG_DATA_HOME/dooit/dooit.db` (usually `~/.local/share/dooit/dooit.db`)
+- macOS: `~/Library/Application Support/fooit/fooit.db`
+- Linux: `$XDG_DATA_HOME/fooit/fooit.db` (usually `~/.local/share/fooit/fooit.db`)
 
-Dates and recurrences are stored in the format SQLAlchemy uses, and dooit's ORM
-hooks (sibling ordering, completing parents when all children are done, resetting
-children, recurrence pushing the due date, urgency clamped to 1-4) are
-reimplemented, so data round-trips between the two apps.
+On its first start, when that file does not exist yet, fooit imports dooit's database
+(`dooit/dooit.db` in the same folder) if there is one, and leaves it as it was. From
+then on the two apps keep their own todos. dooit's rules (completing a parent when all
+its children are done, resetting children, recurrence pushing the due date, urgency
+kept to 1-4) still apply.
 
 ## Usage
 
