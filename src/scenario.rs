@@ -700,6 +700,42 @@ fn dragging_at_the_edge_scrolls() {
 }
 
 #[test]
+fn moving_passes_hidden_completed_todos() {
+    let mut app = temp_app("move-hidden");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for d in ["a", "done", "c"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "kcj");
+    assert_eq!(descriptions(&app), ["a", "c"]);
+
+    // up passes the hidden todo in one step, in move mode and with K alike
+    press(&mut app, "m");
+    key(&mut app, KeyCode::Up);
+    assert_eq!(descriptions(&app), ["c", "a"]);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(descriptions(&app), ["a", "c"]);
+
+    // nesting goes under the shown todo above, not the hidden one
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(depths(&app), [("a".into(), 0), ("c".into(), 1)]);
+    press(&mut app, "<<K");
+    assert_eq!(descriptions(&app), ["c", "a"]);
+
+    // and so does tab on a new todo
+    press(&mut app, "Ga");
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "new");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(depths(&app), [("c".into(), 0), ("a".into(), 0), ("new".into(), 1)]);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

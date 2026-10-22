@@ -740,6 +740,7 @@ impl Db {
         { tx.commit().map_err(err)?; self.finish() }
     }
 
+    #[cfg(test)]
     fn shift(&mut self, item: Item, up: bool) -> Result<bool> {
         let mut siblings = self.siblings(item);
         let Some(index) = siblings.iter().position(|s| *s == item) else {
@@ -765,15 +766,13 @@ impl Db {
         Ok(true)
     }
 
+    #[cfg(test)]
     pub fn shift_up(&mut self, item: Item) -> Result<bool> {
         self.shift(item, true)
     }
 
-    pub fn shift_down(&mut self, item: Item) -> Result<bool> {
-        self.shift(item, false)
-    }
-
     /// Make the item the last child of its previous sibling
+    #[cfg(test)]
     pub fn indent(&mut self, item: Item) -> Result<Option<Item>> {
         let mut siblings = self.siblings(item);
         let Some(index) = siblings.iter().position(|s| *s == item) else {

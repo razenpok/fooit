@@ -971,13 +971,13 @@ impl App {
                 }
             }
             "up" | "k" => {
-                self.db.shift_up(item)?;
+                self.shift_shown(item, true)?;
             }
             "down" | "j" => {
-                self.db.shift_down(item)?;
+                self.shift_shown(item, false)?;
             }
             "right" | "l" => {
-                if let Some(parent) = self.db.indent(item)? {
+                if let Some(parent) = self.indent_shown(item)? {
                     self.collapsed.remove(&parent);
                 }
             }
@@ -1331,7 +1331,7 @@ impl App {
         let Some(item) = self.tree(tree).and_then(|t| t.editing()).map(|e| e.item) else { return Ok(()) };
         let Some(draft) = self.tree_mut(tree).draft.filter(|d| d.item == item) else {
             if indent {
-                if let Some(parent) = self.db.indent(item)? {
+                if let Some(parent) = self.indent_shown(item)? {
                     self.collapsed.remove(&parent);
                 }
             } else {
@@ -1342,8 +1342,12 @@ impl App {
         };
 
         let moved = if indent {
-            // the last child of the sibling above
-            let Some(above) = draft.after else { return Ok(()) };
+            // the last child of the sibling above, skipping hidden ones
+            let siblings = self.db.children(draft.parent, item.is_todo());
+            let upto = draft.after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
+            let Some(above) = siblings[..upto].iter().rev().copied().find(|s| self.is_shown(*s)) else {
+                return Ok(());
+            };
             self.collapsed.remove(&above);
             let last = self.db.children(above.as_parent(), item.is_todo()).last().copied();
             Draft { parent: above.as_parent(), after: last, ..draft }
@@ -1372,6 +1376,43 @@ impl App {
         }
         self.rebuild(tree);
         self.refresh_all();
+    }
+
+    /// Whether an item is shown as far as completion goes: completed ones are hidden unless shown
+    fn is_shown(&self, item: Item) -> bool {
+        self.show_completed || !self.is_completed(item)
+    }
+
+    /// The siblings an item is shown between, itself included
+    fn shown_siblings(&self, item: Item) -> Vec<Item> {
+        self.db.siblings(item).into_iter().filter(|s| *s == item || self.is_shown(*s)).collect()
+    }
+
+    /// Swap an item with the shown sibling above or below it, passing hidden ones
+    fn shift_shown(&mut self, item: Item, up: bool) -> Result<()> {
+        let shown = self.shown_siblings(item);
+        let Some(at) = shown.iter().position(|s| *s == item) else { return Ok(()) };
+        let Some(parent) = self.db.parent_of(item) else { return Ok(()) };
+        if up {
+            let Some(above) = at.checked_sub(1).map(|i| shown[i]) else { return Ok(()) };
+            let all = self.db.siblings(item);
+            let before = all.iter().position(|s| *s == above).and_then(|i| i.checked_sub(1)).map(|i| all[i]);
+            self.db.move_to(item, parent, before)
+        } else {
+            let Some(below) = shown.get(at + 1).copied() else { return Ok(()) };
+            self.db.move_to(item, parent, Some(below))
+        }
+    }
+
+    /// Make an item the last child of the shown sibling above it, returning that sibling
+    fn indent_shown(&mut self, item: Item) -> Result<Option<Item>> {
+        let shown = self.shown_siblings(item);
+        let Some(above) = shown.iter().position(|s| *s == item).and_then(|i| i.checked_sub(1)).map(|i| shown[i]) else {
+            return Ok(None);
+        };
+        let last = self.db.children(above.as_parent(), item.is_todo()).last().copied();
+        self.db.move_to(item, above.as_parent(), last)?;
+        Ok(Some(above))
     }
 
     pub fn has_children(&self, item: Item) -> bool {
@@ -1594,17 +1635,17 @@ impl App {
             }
             Action::ShiftUp => {
                 let item = self.current_item(tree)?;
-                self.db.shift_up(item)?;
+                self.shift_shown(item, true)?;
                 self.refresh_all();
             }
             Action::ShiftDown => {
                 let item = self.current_item(tree)?;
-                self.db.shift_down(item)?;
+                self.shift_shown(item, false)?;
                 self.refresh_all();
             }
             Action::Indent => {
                 let item = self.current_item(tree)?;
-                if let Some(parent) = self.db.indent(item)? {
+                if let Some(parent) = self.indent_shown(item)? {
                     self.collapsed.remove(&parent);
                 }
                 self.refresh_all();
