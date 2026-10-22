@@ -11,6 +11,13 @@ fn press(app: &mut app::App, keys: &str) {
     }
 }
 
+/// Save the name being typed and open the todos of that workspace, starting a new todo
+fn save_and_open(app: &mut app::App) {
+    key(app, KeyCode::Enter);
+    key(app, KeyCode::Esc);
+    key(app, KeyCode::Tab);
+}
+
 fn key(app: &mut app::App, code: KeyCode) {
     app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
 }
@@ -54,7 +61,7 @@ fn adds_task_to_topmost_workspace() {
     press(&mut app, "aFirst");
     key(&mut app, KeyCode::Enter);
     press(&mut app, "Second");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     press(&mut app, "existing");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -76,7 +83,7 @@ fn arrows_and_tab_finish_editing() {
     let mut app = temp_app("edit-nav");
     press(&mut app, "a");
     press(&mut app, "Work");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     assert_eq!(app.mode, app::Mode::Insert);
     assert!(app.focused_tree().is_todos());
 
@@ -95,20 +102,51 @@ fn arrows_and_tab_finish_editing() {
     assert_eq!(descriptions(&app), ["one", "two", "three"]);
     assert_eq!(highlighted(&app), "three");
 
-    press(&mut app, "i");
-    press(&mut app, "!");
-    key(&mut app, KeyCode::Tab);
-    assert_eq!(descriptions(&app), ["Work"]);
-    key(&mut app, KeyCode::Tab);
+    press(&mut app, "i!");
+    key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
     assert_eq!(descriptions(&app), ["one", "two", "three!"]);
+}
+
+#[test]
+fn tab_indents_while_editing() {
+    let mut app = temp_app("edit-indent");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for d in ["one", "two"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    // a new item nests under the one above it before it is saved
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.mode, app::Mode::Insert);
+    press(&mut app, "sub");
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(depths(&app)[2].1, 1);
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(depths(&app), [("one".into(), 0), ("two".into(), 0), ("sub".into(), 1)]);
+
+    // an existing item too, and shift+tab moves it back out
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Left);
+    press(&mut app, "i!");
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert_eq!(depths(&app), [("one".into(), 0), ("two".into(), 1), ("sub".into(), 2)]);
+    key(&mut app, KeyCode::BackTab);
+    key(&mut app, KeyCode::BackTab);
+    assert_eq!(depths(&app), [("one".into(), 0), ("two".into(), 0), ("sub".into(), 1)]);
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one", "two!", "sub"]);
 }
 
 #[test]
 fn arrows_move_between_levels() {
     let mut app = temp_app("levels");
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     for d in ["one", "two", "three"] {
         press(&mut app, d);
         key(&mut app, KeyCode::Enter);
@@ -165,7 +203,7 @@ fn children_are_shown_on_start() {
     let _ = std::fs::remove_file(&path);
     let mut app = app::App::new(db::Db::open(&path).unwrap());
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     press(&mut app, "parent");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -188,7 +226,7 @@ fn completed_todos_are_hidden_and_removed() {
     press(&mut app, "aWork");
     key(&mut app, KeyCode::Enter);
     press(&mut app, "Other");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     press(&mut app, "elsewhere");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -244,7 +282,7 @@ fn mouse_completes_and_drags() {
     let mut app = temp_app("mouse");
     let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     for d in ["A", "B", "C"] {
         press(&mut app, d);
         key(&mut app, KeyCode::Enter);
@@ -343,7 +381,7 @@ fn drag_todo_onto_workspace() {
     press(&mut app, "aWork");
     key(&mut app, KeyCode::Enter);
     press(&mut app, "Other");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     press(&mut app, "existing");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -401,7 +439,7 @@ fn drag_todo_onto_workspace() {
 fn up_and_down_wrap_around() {
     let mut app = temp_app("wrap");
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     for d in ["one", "two"] {
         press(&mut app, d);
         key(&mut app, KeyCode::Enter);
@@ -431,7 +469,7 @@ fn starts_adding_a_todo_to_the_first_workspace() {
     press(&mut app, "aFirst");
     key(&mut app, KeyCode::Enter);
     press(&mut app, "Second");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     press(&mut app, "old");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -440,6 +478,7 @@ fn starts_adding_a_todo_to_the_first_workspace() {
     app.start();
     assert!(app.focused_tree().is_todos());
     assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Tab);
     assert_eq!(highlighted(&app), "First");
 }
@@ -448,7 +487,7 @@ fn starts_adding_a_todo_to_the_first_workspace() {
 fn completed_todo_stays_while_the_cursor_is_inside_it() {
     let mut app = temp_app("kept");
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     for d in ["parent", "other"] {
         press(&mut app, d);
         key(&mut app, KeyCode::Enter);
@@ -477,7 +516,7 @@ fn closing_while_adding_keeps_no_empty_todo() {
     let _ = std::fs::remove_file(&path);
     let mut app = app::App::new(db::Db::open(&path).unwrap());
     press(&mut app, "aWork");
-    key(&mut app, KeyCode::Tab);
+    save_and_open(&mut app);
     let ws = app.current_ws().unwrap();
     let in_db = |app: &app::App| app.db.children(db::Parent::Ws(ws), true).len();
     assert_eq!(app.mode, app::Mode::Insert);

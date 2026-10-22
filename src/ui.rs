@@ -561,7 +561,7 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
     let line = match &app.bar {
         _ if app.help.is_some() => options(&[("Close", "esc"), ("Scroll", "j/k")]),
         Bar::Status if app.mode == Mode::Insert => {
-            options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down/tab")])
+            options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")])
         }
         Bar::Status if app.focus == Focus::Todos => options(&[
             ("Add", "a"),

@@ -885,10 +885,7 @@ impl App {
                 }
                 Ok(())
             }
-            ("tab", _) => {
-                self.stop_edit(tree, false);
-                self.run(Action::SwitchFocus)
-            }
+            ("tab" | "shift+tab", _) => self.reindent_edit(tree, key == "tab"),
             _ => {
                 if let Some(edit) = self.tree_mut(tree).edit.as_mut() {
                     edit.input.keypress(key);
@@ -1119,6 +1116,43 @@ impl App {
         let last = self.db.children(current.as_parent(), current.is_todo()).last().copied();
         self.collapsed.remove(&current);
         self.start_draft(tree, current.as_parent(), last)
+    }
+
+    /// Nest the item being edited under the one above it, or move it out of its parent, and
+    /// keep editing it; a new item that is not saved yet only moves on screen
+    fn reindent_edit(&mut self, tree: TreeRef, indent: bool) -> Result<()> {
+        let Some(item) = self.tree(tree).and_then(|t| t.editing()).map(|e| e.item) else { return Ok(()) };
+        let Some(draft) = self.tree_mut(tree).draft.filter(|d| d.item == item) else {
+            if indent {
+                if let Some(parent) = self.db.indent(item)? {
+                    self.collapsed.remove(&parent);
+                }
+            } else {
+                self.db.dedent(item)?;
+            }
+            self.refresh_all();
+            return Ok(());
+        };
+
+        let moved = if indent {
+            // the last child of the sibling above
+            let Some(above) = draft.after else { return Ok(()) };
+            self.collapsed.remove(&above);
+            let last = self.db.children(above.as_parent(), item.is_todo()).last().copied();
+            Draft { parent: above.as_parent(), after: last, ..draft }
+        } else {
+            // right after its parent, when that is an item of the same kind
+            let parent = match draft.parent {
+                Parent::Todo(id) if item.is_todo() => Item::Todo(id),
+                Parent::Ws(id) if !item.is_todo() => Item::Ws(id),
+                _ => return Ok(()),
+            };
+            let Some(grandparent) = self.db.parent_of(parent) else { return Ok(()) };
+            Draft { parent: grandparent, after: Some(parent), ..draft }
+        };
+        self.tree_mut(tree).draft = Some(moved);
+        self.refresh_all();
+        Ok(())
     }
 
     fn remove(&mut self, tree: TreeRef, item: Item) {

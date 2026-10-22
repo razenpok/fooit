@@ -56,8 +56,9 @@ drops it.
 | `q`, `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
-`escape` discards, asking first if something changed. The up and down arrows and
-`tab` save the edit and then move the cursor or switch lists.
+`escape` discards, asking first if something changed. The up and down arrows save the
+edit and then move the cursor. `tab` / `shift+tab` nest the item under the one above
+it / move it out of its parent while you keep typing, also for a new item.
 
 Completed todos are hidden, once the cursor has left them and their children.
 
