@@ -178,29 +178,39 @@ fn arrows_move_between_levels() {
     key(&mut app, KeyCode::Right);
     assert_eq!(highlighted(&app), "child");
 
-    // up and down stay on the level, wrapping around it; j and k go row by row
+    // up and down stay on the level; past either end of it a new item starts at its end
     key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert_eq!(depths(&app)[3], ("".into(), 2));
+    key(&mut app, KeyCode::Esc);
     assert_eq!(highlighted(&app), "child");
     press(&mut app, "j");
     assert_eq!(highlighted(&app), "three");
     key(&mut app, KeyCode::Down);
-    assert_eq!(highlighted(&app), "one");
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert_eq!(depths(&app).last().unwrap(), &("".into(), 0));
+    // down from the new item goes round to the first, and up from there to a new one again
     key(&mut app, KeyCode::Down);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(highlighted(&app), "one");
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Normal);
     assert_eq!(highlighted(&app), "three");
 
     // a collapsed parent opens when going into it
-    key(&mut app, KeyCode::Up);
-    press(&mut app, "z");
+    press(&mut app, "gz");
     assert_eq!(descriptions(&app), ["one", "three"]);
     key(&mut app, KeyCode::Right);
     assert_eq!(highlighted(&app), "two");
 
     // also finishes an edit
-    press(&mut app, "ji!");
+    press(&mut app, "Gi!");
     key(&mut app, KeyCode::Up);
     assert_eq!(app.mode, app::Mode::Normal);
-    assert_eq!(highlighted(&app), "child!");
-    assert_eq!(descriptions(&app), ["one", "two", "child!", "three"]);
+    assert_eq!(highlighted(&app), "one");
+    assert_eq!(descriptions(&app), ["one", "two", "child", "three!"]);
 }
 
 #[test]
@@ -374,7 +384,8 @@ fn mouse_completes_and_drags() {
     mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (b.0 + 2, b.1));
     mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (b.0 + 2, b.1));
     press(&mut app, "y");
-    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
     assert_eq!(depths(&app), [("A".into(), 0), ("Cx".into(), 0), ("yB".into(), 1)]);
 }
 
@@ -452,18 +463,27 @@ fn up_and_down_wrap_around() {
     }
     key(&mut app, KeyCode::Esc);
     assert_eq!(highlighted(&app), "two");
-    press(&mut app, "j");
-    assert_eq!(highlighted(&app), "one");
 
-    // up from the top goes round to adding a todo at the bottom, and down from there to the top
-    key(&mut app, KeyCode::Up);
+    // past the last item, or above the first, a new one starts at the end
+    press(&mut app, "j");
     assert_eq!(app.mode, app::Mode::Insert);
     assert_eq!(descriptions(&app), ["one", "two", ""]);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(highlighted(&app), "two");
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.mode, app::Mode::Insert);
+
+    // from that new item, down goes round to the top and up back to the last
     key(&mut app, KeyCode::Down);
     assert_eq!(app.mode, app::Mode::Normal);
     assert_eq!(descriptions(&app), ["one", "two"]);
     assert_eq!(highlighted(&app), "one");
-    press(&mut app, "k");
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(highlighted(&app), "two");
+    press(&mut app, "kk");
     assert_eq!(app.mode, app::Mode::Insert);
     key(&mut app, KeyCode::Esc);
 
@@ -473,10 +493,18 @@ fn up_and_down_wrap_around() {
     assert_eq!(app.mode, app::Mode::Insert);
     assert_eq!(descriptions(&app), ["one", "two", ""]);
     key(&mut app, KeyCode::Esc);
-    press(&mut app, "i");
+    press(&mut app, "gi");
     key(&mut app, KeyCode::Down);
     assert_eq!(app.mode, app::Mode::Normal);
-    assert_eq!(highlighted(&app), "one");
+    assert_eq!(highlighted(&app), "two");
+
+    // the workspace list is a scope too
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "G");
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert!(!app.focused_tree().is_todos());
+    key(&mut app, KeyCode::Esc);
 }
 
 #[test]

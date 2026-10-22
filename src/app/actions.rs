@@ -15,11 +15,42 @@ impl App {
             .collect())
     }
 
-    /// Whether the cursor is on the first row of a workspace's todos
-    pub(super) fn at_top_of_todos(&self, tree: TreeRef) -> bool {
-        tree.is_todos()
-            && !is_gathered(tree)
-            && self.tree(tree).is_some_and(|t| t.highlighted.is_some() && t.highlighted == t.first_enabled())
+    /// The parent to add a new item to when moving past an end of the cursor's scope: up from
+    /// its first item or down from its last. The scope is the item's level for the arrows (the
+    /// workspaces, a workspace's todos, a todo's subtasks), and the whole list row by row for
+    /// j and k. None inside the scope, on a new item, and in lists gathered from everywhere
+    pub(super) fn scope_end(&self, tree: TreeRef, down: bool, by_level: bool) -> Option<Parent> {
+        if is_gathered(tree) {
+            return None;
+        }
+        let state = self.tree(tree)?;
+        let rows = &state.rows;
+        let h = state.highlighted.filter(|h| *h < rows.len())?;
+        let item = rows[h].item;
+        if is_draft(item) {
+            return None;
+        }
+        let depth = if by_level { rows[h].depth } else { 0 };
+        let start = (0..h).rev().find(|i| rows[*i].depth < depth).map_or(0, |parent| parent + 1);
+        let end = (h + 1..rows.len()).find(|i| rows[*i].depth < depth).unwrap_or(rows.len());
+        let mut scope = (start..end).filter(|i| rows[*i].depth == depth && rows[*i].enabled);
+        let edge = if down { scope.last() } else { scope.next() };
+        // row by row, the ends are the list's first and last rows, whatever their depth
+        let at_edge = if by_level { edge == Some(h) } else { h == if down { rows.len() - 1 } else { 0 } };
+        if !at_edge {
+            return None;
+        }
+        let parent = if by_level { self.db.parent_of(item) } else { None };
+        parent.or_else(|| self.tree_root(tree))
+    }
+
+    /// Start adding a new item at the end of a parent's children
+    pub(super) fn add_at_end(&mut self, tree: TreeRef, parent: Parent) -> Result<()> {
+        if let Parent::Todo(id) = parent {
+            self.collapsed.remove(&Item::Todo(id));
+        }
+        let last = self.db.children(parent, tree.is_todos()).last().copied();
+        self.start_draft(tree, parent, last)
     }
 
     /// The row moving the cursor up or down lands on, wrapping around the ends of the list
@@ -118,7 +149,17 @@ impl App {
                 }
             },
             // up from the top of a workspace's todos goes round to adding one at the bottom
-            Action::MoveUp | Action::PreviousSibling if self.at_top_of_todos(tree) => self.add_last_item(tree)?,
+            // past an end of the scope, a new item starts at its end
+            Action::MoveUp | Action::MoveDown | Action::PreviousSibling | Action::NextSibling
+                if self
+                    .scope_end(tree, matches!(action, Action::MoveDown | Action::NextSibling), matches!(action, Action::PreviousSibling | Action::NextSibling))
+                    .is_some() =>
+            {
+                let down = matches!(action, Action::MoveDown | Action::NextSibling);
+                let by_level = matches!(action, Action::PreviousSibling | Action::NextSibling);
+                let parent = self.scope_end(tree, down, by_level).unwrap();
+                self.add_at_end(tree, parent)?;
+            }
             Action::MoveDown | Action::MoveUp => {
                 if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
                     self.highlight_item(tree, item);
