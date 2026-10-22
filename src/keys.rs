@@ -196,21 +196,21 @@ impl KeyManager {
             (&["<up>"], Action::PreviousSibling),
             (&["<right>", "l"], Action::IntoChildren),
             (&["<left>", "h"], Action::ToParent),
-            (&["i"], Action::EditDescription),
+            (&["i", "<space>"], Action::EditDescription),
             (&["<backspace>"], Action::EditBackspace),
             (&["d"], Action::EditDue),
             (&["r"], Action::EditRecurrence),
             (&["a", "<enter>"], Action::AddSibling),
             (&["z"], Action::ToggleExpand),
             (&["Z"], Action::ToggleExpandParent),
-            (&["gg"], Action::GoToTop),
+            (&["g"], Action::GoToTop),
             (&["G"], Action::GoToBottom),
             (&["A"], Action::AddChild),
             (&["J"], Action::ShiftDown),
             (&["K"], Action::ShiftUp),
             (&[">>", "."], Action::Indent),
             (&["<<", ","], Action::Dedent),
-            (&["xx"], Action::RemoveNode),
+            (&["x"], Action::RemoveNode),
             (&["y"], Action::CopyDescription),
             (&["Y"], Action::CopyModel),
             (&["p"], Action::PasteBelow),
@@ -418,6 +418,7 @@ pub fn resolve(event: KeyEvent) -> Option<String> {
             'd' => "ctrl+delete".into(),
             _ => c.to_string(),
         },
+        KeyCode::Char(' ') => "space".into(),
         KeyCode::Char(c) => c.to_string(),
         KeyCode::Enter => "enter".into(),
         KeyCode::Esc => "escape".into(),
@@ -452,8 +453,8 @@ mod tests {
     #[test]
     fn sequences() {
         let mut km = KeyManager::with_defaults();
-        assert!(matches!(km.register("g", true), KeyMatch::Multiple));
         assert!(matches!(km.register("g", true), KeyMatch::Found(Action::GoToTop)));
+        assert!(matches!(km.register("space", true), KeyMatch::Found(Action::EditDescription)));
         assert!(matches!(km.register("<", true), KeyMatch::Multiple));
         assert!(matches!(km.register("<", true), KeyMatch::Found(Action::Dedent)));
         assert!(matches!(km.register(".", true), KeyMatch::Found(Action::Indent)));
@@ -463,8 +464,7 @@ mod tests {
         assert!(matches!(km.register("down", true), KeyMatch::Found(Action::NextSibling)));
         assert!(matches!(km.register("j", true), KeyMatch::Found(Action::MoveDown)));
         assert!(matches!(km.register("tab", true), KeyMatch::Found(Action::SwitchFocus)));
-        assert!(matches!(km.register("x", true), KeyMatch::Multiple));
-        assert!(matches!(km.register("q", true), KeyMatch::NoMatch));
+        assert!(matches!(km.register("x", true), KeyMatch::Found(Action::RemoveNode)));
         assert!(matches!(km.register("j", false), KeyMatch::NoMatch));
         assert!(matches!(km.register("ctrl+s", true), KeyMatch::Found(Action::StartSort)));
         assert!(matches!(km.register("q", true), KeyMatch::Found(Action::Quit)));
@@ -481,7 +481,7 @@ mod tests {
         assert!(matches!(km.register("x", true), KeyMatch::NoMatch));
 
         assert!(KeyManager::from_file("nope = \"z\"").err().unwrap().contains("unknown action `nope`"));
-        assert!(KeyManager::from_file("quit = \"g\"").err().unwrap().contains("is the start of `gg`"));
+        assert!(KeyManager::from_file("quit = \"<\"").err().unwrap().contains("is the start of `<"));
         assert_eq!(parse_keys(r#"["<<", ",", "\""]"#).unwrap(), ["<<", ",", "\""]);
         assert!(KeyManager::from_file("quit = z").is_err());
         assert!(KeyManager::from_file("remove_node = \"d\"").err().unwrap().contains("bound to both"));

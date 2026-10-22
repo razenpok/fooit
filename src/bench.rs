@@ -172,7 +172,6 @@ fn scrolls_with_wrapped_rows() {
     let s = screen(&mut term, &mut app);
     assert!(s.contains("Todo 197 ") && !s.contains("Todo 200 "), "{s}"); // each row wraps to 4 of the 9 lines
     press(&mut app, KeyCode::Char('g'));
-    press(&mut app, KeyCode::Char('g'));
     let s = screen(&mut term, &mut app);
     assert!(s.contains("Todo 1 ") && !s.contains("Todo 197 "), "{s}");
     let _ = std::fs::remove_file(&path);

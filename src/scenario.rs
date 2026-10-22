@@ -170,7 +170,7 @@ fn arrows_move_between_levels() {
     key(&mut app, KeyCode::Right);
     assert_eq!(app.mode, app::Mode::Insert);
     key(&mut app, KeyCode::Esc);
-    press(&mut app, "gg");
+    press(&mut app, "g");
     assert_eq!(highlighted(&app), "one");
     key(&mut app, KeyCode::Right);
     key(&mut app, KeyCode::Right);
@@ -253,7 +253,7 @@ fn completed_todos_are_hidden_and_removed() {
     // completed todos stay until the cursor leaves them
     press(&mut app, "kc");
     assert_eq!(descriptions(&app), ["done", "keep", "nested done", "nested keep"]);
-    press(&mut app, "gg");
+    press(&mut app, "g");
     assert_eq!(descriptions(&app), ["done", "keep", "nested keep"]);
     press(&mut app, "c");
     assert_eq!(descriptions(&app), ["done", "keep", "nested keep"]);
@@ -468,7 +468,7 @@ fn up_and_down_wrap_around() {
     key(&mut app, KeyCode::Esc);
 
     // also when leaving an edit with the arrows
-    press(&mut app, "ggi");
+    press(&mut app, "gi");
     key(&mut app, KeyCode::Up);
     assert_eq!(app.mode, app::Mode::Insert);
     assert_eq!(descriptions(&app), ["one", "two", ""]);
@@ -591,7 +591,7 @@ fn move_mode() {
     assert_eq!(highlighted(&app), "three");
 
     // tab picks a workspace, which the todo moves to straight away
-    press(&mut app, "gg");
+    press(&mut app, "g");
     press(&mut app, "m");
     key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::Down);
@@ -700,7 +700,7 @@ fn undo_and_redo() {
     key(&mut app, KeyCode::Esc);
 
     // removing, then undoing it, brings the todo back; enter answers yes
-    press(&mut app, "xx");
+    press(&mut app, "x");
     key(&mut app, KeyCode::Enter);
     assert_eq!(descriptions(&app), ["one", "two"]);
     press(&mut app, "u");
@@ -747,7 +747,7 @@ fn dragging_at_the_edge_scrolls() {
         key(&mut app, KeyCode::Enter);
     }
     key(&mut app, KeyCode::Esc);
-    press(&mut app, "gg");
+    press(&mut app, "g");
     screen(&mut term, &mut app, "top");
 
     let area = app.tree(app.focused_tree()).unwrap().view.area;
@@ -829,7 +829,7 @@ fn today_lists_what_is_due_across_workspaces() {
 
     // Today sits at the top of the workspaces, and opening it adds nothing
     key(&mut app, KeyCode::Tab);
-    press(&mut app, "gg");
+    press(&mut app, "g");
     let s = screen(&mut term, &mut app, "today row");
     assert!(s.contains("Today") && app.current_ws() == Some(app::TODAY_ID));
     // one overdue, one due later today
@@ -953,7 +953,7 @@ fn snooze_pushes_the_due_date() {
     assert_eq!(due(&app, 1), Some(1));
     press(&mut app, "3s");
     assert_eq!(due(&app, 1), Some(4));
-    press(&mut app, "ggs");
+    press(&mut app, "gs");
     assert_eq!(due(&app, 0), Some(1));
 
     // a count is only for the action right after it
@@ -974,7 +974,7 @@ fn upcoming_lists_the_next_week_by_day() {
     key(&mut app, KeyCode::Esc);
 
     key(&mut app, KeyCode::Tab);
-    press(&mut app, "ggj");
+    press(&mut app, "gj");
     let s = screen(&mut term, &mut app, "upcoming row");
     assert!(s.contains("Upcoming"), "{s}");
     key(&mut app, KeyCode::Tab);
@@ -1026,7 +1026,7 @@ fn marked_todos_are_acted_on_together() {
     key(&mut app, KeyCode::Esc);
 
     // v marks and steps down; escape unmarks all
-    press(&mut app, "ggvjv");
+    press(&mut app, "gvjv");
     assert_eq!(app.marked.len(), 2);
     let s = screen(&mut term, &mut app, "marked");
     assert!(s.contains("2 marked") && s.matches('●').count() == 2, "{s}");
@@ -1034,7 +1034,7 @@ fn marked_todos_are_acted_on_together() {
     assert!(app.marked.is_empty());
 
     // snooze and complete act on all marked
-    press(&mut app, "ggvvs");
+    press(&mut app, "gvvs");
     assert!(app.marked.is_empty());
     let dues = |app: &app::App| {
         app.tree(app.focused_tree())
@@ -1050,7 +1050,7 @@ fn marked_todos_are_acted_on_together() {
     assert_eq!(dues(&app), [true, true, false, false]);
 
     // moving one brings the rest along, here to another workspace
-    press(&mut app, "ggjvjv");
+    press(&mut app, "gjvjv");
     press(&mut app, "kkm");
     key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::Down);
@@ -1063,9 +1063,39 @@ fn marked_todos_are_acted_on_together() {
     assert_eq!(descriptions(&app), ["a", "c"]);
 
     // and removing asks once for all of them
-    press(&mut app, "ggvvxx");
+    press(&mut app, "gvvx");
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.tree(app.focused_tree()).unwrap().rows.len(), 0);
+}
+
+#[test]
+fn v_steps_over_children_and_space_edits() {
+    let mut app = temp_app("v-space");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for d in ["one", "two"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "gAchild");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one", "child", "two"]);
+
+    // v goes on to the next item on the same level, not into the children
+    press(&mut app, "gv");
+    assert_eq!(highlighted(&app), "two");
+    press(&mut app, "v");
+    assert_eq!(highlighted(&app), "two");
+    assert_eq!(app.marked.len(), 2);
+    key(&mut app, KeyCode::Esc);
+
+    // space starts editing, like i
+    press(&mut app, " !");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one", "child", "two!"]);
 }
 
 #[test]
@@ -1171,7 +1201,7 @@ fn walkthrough() {
 
     // delete everything we made in the scenario workspace
     key(&mut app, KeyCode::Tab);
-    press(&mut app, "xx");
+    press(&mut app, "x");
     let s = screen(&mut term, &mut app, "delete confirm");
     assert!(s.contains("Are you sure? [Y/n]"));
     press(&mut app, "y");

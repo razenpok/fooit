@@ -54,16 +54,16 @@ completed and edited there; adding and arranging happens in their workspace.
 | | up (`k` or the arrow) from the first todo starts adding one at the bottom |
 | down / up | next / previous item on the same level, wrapping around it |
 | right, `l` / left, `h` | into the subtasks / to the parent; from the workspaces, or a top-level todo, like `tab` |
-| `gg` / `G` | top / bottom |
-| `i` `d` `r` | edit description / due date (a date, or from now: `1d`, `1d 5h`, `30m`) / recurrence (`1d`, `2w`, `12h`) |
+| `g` / `G` | top / bottom |
+| `i`, space / `d` / `r` | edit description / due date (a date, or from now: `1d`, `1d 5h`, `30m`) / recurrence (`1d`, `2w`, `12h`) |
 | `a`, `enter` / `A` | add sibling / child |
 | backspace | edit the description, deleting its last character |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
 | `m` | move mode (see below) |
-| `v` | mark the item (and go to the next); `c`, `s`, `+`/`-`, `m` and `xx` then act on all marked; `escape` unmarks |
+| `v` | mark the item (and go to the next on its level); `c`, `s`, `+`/`-`, `m` and `x` then act on all marked; `escape` unmarks |
 | `>>`, `.` / `<<`, `,` | indent / dedent |
-| `xx` | remove (asks for confirmation; enter or `y` confirms) |
+| `x` | remove (asks for confirmation; enter or `y` confirms) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |

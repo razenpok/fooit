@@ -294,10 +294,16 @@ impl App {
                 if !self.marked.remove(&item) {
                     self.marked.insert(item);
                 }
-                // on to the next row, to mark a run of them
+                // on to the next item on the same level, past its children, to mark a run of them
                 let state = self.tree_mut(tree);
-                if state.highlighted.is_some_and(|h| h + 1 < state.rows.len()) {
-                    if let Some(next) = self.move_target(tree, true) {
+                if let Some(h) = state.highlighted {
+                    let depth = state.rows[h].depth;
+                    let next = state.rows[h + 1..]
+                        .iter()
+                        .take_while(|r| r.depth >= depth)
+                        .find(|r| r.depth == depth && r.enabled)
+                        .map(|r| r.item);
+                    if let Some(next) = next {
                         self.highlight_item(tree, next);
                     }
                 }
