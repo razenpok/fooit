@@ -64,7 +64,8 @@ completed and edited there; adding and arranging happens in their workspace.
 | `X` | remove the workspace's completed todos (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |
 | `u` / `ctrl+r` | undo / redo |
-| `/` | search |
+| `/` | search the list |
+| `ctrl+f` | search every workspace; enter on a result goes to it |
 | `ctrl+s` | sort siblings |
 | `?` | help |
 | `q`, `ctrl+q`, `ctrl+c` | quit |

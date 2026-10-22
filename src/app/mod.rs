@@ -162,6 +162,15 @@ pub const TODAY_ID: i64 = -2;
 pub const TODAY: TreeRef = TreeRef::Todos(TODAY_ID);
 pub const TODAY_ROW: Item = Item::Ws(TODAY_ID);
 
+/// The todos of every workspace matching a search (ctrl+f)
+pub const FOUND_ID: i64 = -3;
+pub const FOUND: TreeRef = TreeRef::Todos(FOUND_ID);
+
+/// Lists made up of todos from every workspace, which have no order or nesting of their own
+pub fn is_gathered(tree: TreeRef) -> bool {
+    tree == TODAY || tree == FOUND
+}
+
 /// An item being moved with the keyboard, and where it was, to put it back on escape
 #[derive(Clone, Copy)]
 pub struct Moving {
@@ -288,6 +297,8 @@ pub struct App {
     /// Items start expanded, so only the collapsed ones are tracked
     pub collapsed: HashSet<Item>,
     pub show_completed: bool,
+    /// Whether the search of every workspace is open, in place of the workspace's todos
+    pub finding: bool,
     pub drag: Option<Drag>,
     pub moving: Option<Moving>,
     undo: Vec<Snapshot>,
@@ -317,6 +328,7 @@ impl App {
             mode: Mode::Normal,
             collapsed: HashSet::new(),
             show_completed: false,
+            finding: false,
             drag: None,
             moving: None,
             undo: vec![],
@@ -370,6 +382,7 @@ impl App {
 
     pub fn focused_tree(&self) -> TreeRef {
         match (self.focus, self.current_ws()) {
+            (Focus::Todos, _) if self.finding => FOUND,
             (Focus::Todos, Some(ws)) => TreeRef::Todos(ws),
             _ => TreeRef::Workspaces,
         }
@@ -426,8 +439,9 @@ impl App {
             item = self.db.same_kind_parent(i);
         }
 
-        if tree == TODAY {
-            let rows = self.today_rows(&kept, &filter.to_lowercase());
+        if is_gathered(tree) {
+            let filter = filter.to_lowercase();
+            let rows = if tree == TODAY { self.today_rows(&kept, &filter) } else { self.found_rows(&kept, &filter) };
             self.set_rows(tree, rows, highlighted_item, highlighted_index);
             return;
         }
@@ -497,6 +511,51 @@ impl App {
             .collect()
     }
 
+    /// The todos of every workspace matching a search, in the order of the workspaces
+    fn found_rows(&self, kept: &HashSet<Item>, filter: &str) -> Vec<Row> {
+        fn walk(app: &App, parent: Parent, kept: &HashSet<Item>, filter: &str, rows: &mut Vec<Row>) {
+            for ws in app.db.children(parent, false) {
+                walk(app, ws.as_parent(), kept, filter, rows);
+            }
+            for todo in app.db.children(parent, true) {
+                let shown = app.is_shown(todo) || kept.contains(&todo);
+                if shown && app.db.description(todo).to_lowercase().contains(filter) {
+                    rows.push(Row { item: todo, depth: 0, enabled: true });
+                }
+                walk(app, todo.as_parent(), kept, filter, rows);
+            }
+        }
+        let mut rows = vec![];
+        if let (false, Some(root)) = (filter.is_empty(), self.db.root_id()) {
+            walk(self, Parent::Ws(root), kept, filter, &mut rows);
+        }
+        rows
+    }
+
+    /// Close the search of every workspace
+    pub(super) fn close_find(&mut self) {
+        self.finding = false;
+        self.tree_mut(FOUND).filter.clear();
+        self.rebuild(FOUND);
+    }
+
+    /// Go to a todo in its workspace, opening the items it is in
+    pub(super) fn jump_to(&mut self, item: Item) {
+        self.close_find();
+        let Some(ws) = self.workspace_of(item) else { return };
+        let mut parent = self.db.same_kind_parent(item);
+        while let Some(p) = parent {
+            self.collapsed.remove(&p);
+            parent = self.db.same_kind_parent(p);
+        }
+        self.highlight_item(TreeRef::Workspaces, ws);
+        self.focus = Focus::Todos;
+        self.refresh_all();
+        if let Item::Ws(id) = ws {
+            self.highlight_item(TreeRef::Todos(id), item);
+        }
+    }
+
     /// Open todos due today or before, in every workspace
     pub fn due_today(&self) -> usize {
         let today = dates::now().date();
@@ -539,7 +598,7 @@ impl App {
         self.rebuild(TreeRef::Workspaces);
         let existing: Vec<i64> = self.todo_trees.keys().copied().collect();
         for ws in existing {
-            if ws == TODAY_ID || self.db.exists(Item::Ws(ws)) {
+            if ws == TODAY_ID || ws == FOUND_ID || self.db.exists(Item::Ws(ws)) {
                 self.rebuild(TreeRef::Todos(ws));
             } else {
                 self.todo_trees.remove(&ws);
@@ -549,7 +608,7 @@ impl App {
             self.tree_mut(TreeRef::Todos(ws));
         }
 
-        if self.current_ws().is_none() {
+        if self.current_ws().is_none() && !self.finding {
             self.focus = Focus::Workspaces;
         }
         if self.mode == Mode::Insert && self.tree(self.focused_tree()).and_then(|t| t.editing()).is_none() {
@@ -751,11 +810,19 @@ impl App {
                 "escape" => {
                     self.set_filter(tree, String::new());
                     self.mode = Mode::Normal;
+                    if tree == FOUND {
+                        self.close_find();
+                    }
                 }
                 _ => {
                     input.keypress(key);
                     let filter: String = input.value().chars().skip(1).collect();
                     self.set_filter(tree, filter);
+                    // the results start at the first match
+                    if tree == FOUND {
+                        let state = self.tree_mut(FOUND);
+                        state.highlighted = state.first_enabled();
+                    }
                     self.bar = Bar::Search { input, tree };
                 }
             },
@@ -807,6 +874,9 @@ impl App {
         let Some(field) = editing else {
             if key == "escape" {
                 self.set_filter(tree, String::new());
+                if tree == FOUND {
+                    self.close_find();
+                }
             }
             return;
         };

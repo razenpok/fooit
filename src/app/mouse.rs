@@ -61,7 +61,7 @@ impl App {
         }
 
         // the Today row and the Today list cannot be rearranged
-        if item == TODAY_ROW || tree == TODAY {
+        if item == TODAY_ROW || is_gathered(tree) {
             return Ok(());
         }
         self.drag = Some(Drag {

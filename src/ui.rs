@@ -1,6 +1,6 @@
 //! Rendering, in the style of lazygit's default theme and layout
 
-use crate::app::{indent, is_draft, layout, row_cells, App, MARKER_WIDTH, TODAY, TODAY_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, is_gathered, layout, row_cells, App, MARKER_WIDTH, FOUND, TODAY, TODAY_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -171,6 +171,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     draw_tree(f.buffer_mut(), app, TreeRef::Workspaces, left);
     match app.current_ws() {
+        _ if app.finding => draw_tree(f.buffer_mut(), app, FOUND, right),
         Some(ws) => draw_tree(f.buffer_mut(), app, TreeRef::Todos(ws), right),
         None => draw_dashboard(f.buffer_mut(), right),
     }
@@ -365,7 +366,7 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
     let note = match row.item {
         _ if editing || is_draft(row.item) => None,
         // in Today, the workspace each todo comes from
-        Item::Todo(_) if tree == TODAY => app.workspace_of(row.item).map(|ws| format!("#{}", app.db.description(ws))),
+        Item::Todo(_) if is_gathered(tree) => app.workspace_of(row.item).map(|ws| format!("#{}", app.db.description(ws))),
         _ if row.item == TODAY_ROW => Some(app.due_today()).filter(|due| *due > 0).map(|due| due.to_string()),
         Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| format!("{}/{}", done, all)),
         Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| open.to_string()),
@@ -412,7 +413,7 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
         .collect();
 
     let marker = match () {
-        _ if tree == TODAY || !app.has_children(row.item) => "",
+        _ if is_gathered(tree) || !app.has_children(row.item) => "",
         _ if app.collapsed.contains(&row.item) => "▸",
         _ => "▾",
     };
@@ -443,6 +444,7 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
 
     let (number, title) = match tree {
         TODAY => (2, "Today"),
+        FOUND => (2, "Found"),
         TreeRef::Todos(_) => (2, "Todos"),
         TreeRef::Workspaces => (1, "Workspaces"),
     };
@@ -601,6 +603,9 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             ("Done", "enter"),
             ("Put back", "esc"),
         ]),
+        Bar::Status if app.mode == Mode::Normal && app.focused_tree() == FOUND => {
+            options(&[("Go to", "enter"), ("Complete", "c"), ("Edit", "i"), ("Close", "esc"), ("Keybindings", "?")])
+        }
         Bar::Status if app.mode == Mode::Insert => {
             options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")])
         }
@@ -624,8 +629,8 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             };
             Line::styled(message.clone(), Style::new().fg(color))
         }
-        Bar::Search { input, .. } => Line::from(vec![
-            Span::styled("Search: ", Style::new().fg(SEARCHING_BORDER)),
+        Bar::Search { input, tree } => Line::from(vec![
+            Span::styled(if *tree == FOUND { "Find in all workspaces: " } else { "Search: " }, Style::new().fg(SEARCHING_BORDER)),
             Span::raw(display(&input.draw().chars().skip(1).collect::<String>())),
         ]),
         Bar::Sort { options, selected, .. } => {

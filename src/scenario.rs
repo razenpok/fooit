@@ -824,6 +824,53 @@ fn today_lists_what_is_due_across_workspaces() {
 }
 
 #[test]
+fn find_in_all_workspaces() {
+    let mut app = temp_app("find");
+    let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    press(&mut app, "aWork");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Home");
+    save_and_open(&mut app);
+    press(&mut app, "garden");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "buy SEEDS");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Left);
+    key(&mut app, KeyCode::Left);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "order seeds");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "kz");
+
+    // results come from every workspace, collapsed or not, as you type
+    app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    press(&mut app, "seed");
+    assert_eq!(descriptions(&app), ["order seeds", "buy SEEDS"]);
+    let s = screen(&mut term, &mut app, "found");
+    assert!(s.contains("Find in all workspaces: seed") && s.contains("#Home"), "{s}");
+
+    // enter goes to the results, enter again to the todo, in its workspace
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "j");
+    key(&mut app, KeyCode::Enter);
+    assert!(!app.finding);
+    assert_eq!(app.db.description(db::Item::Ws(app.current_ws().unwrap())), "Home");
+    assert_eq!(highlighted(&app), "buy SEEDS");
+    assert_eq!(descriptions(&app), ["garden", "buy SEEDS"]);
+
+    // escape closes the search where it was
+    app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    press(&mut app, "order");
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.finding);
+    assert_eq!(descriptions(&app), ["garden", "buy SEEDS"]);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

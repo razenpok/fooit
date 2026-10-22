@@ -68,8 +68,14 @@ impl App {
         {
             return Ok(());
         }
-        if tree == TODAY && changes_row {
-            self.notify("Today lists todos from every workspace; add and arrange them there", Level::Info);
+        // enter or right on a search result goes to the todo
+        if tree == FOUND && matches!(action, Action::AddSibling | Action::IntoChildren) {
+            let item = self.current_item(tree)?;
+            self.jump_to(item);
+            return Ok(());
+        }
+        if is_gathered(tree) && changes_row {
+            self.notify("This lists todos from every workspace; add and arrange them there", Level::Info);
             return Ok(());
         }
 
@@ -85,7 +91,12 @@ impl App {
                         }
                     }
                 }
-                Focus::Todos => self.focus = Focus::Workspaces,
+                Focus::Todos => {
+                    if self.finding {
+                        self.close_find();
+                    }
+                    self.focus = Focus::Workspaces;
+                }
             },
             Action::MoveDown | Action::MoveUp => {
                 if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
@@ -113,7 +124,7 @@ impl App {
             Action::ToParent => {
                 let item = self.current_item(tree)?;
                 match self.db.same_kind_parent(item) {
-                    Some(parent) if tree != TODAY => self.highlight_item(tree, parent),
+                    Some(parent) if !is_gathered(tree) => self.highlight_item(tree, parent),
                     // from the top of the todos, left goes back to the workspaces like tab
                     _ if tree.is_todos() => return self.run(Action::SwitchFocus),
                     _ => {}
@@ -241,6 +252,13 @@ impl App {
             Action::StartMove => self.start_move(tree)?,
             Action::Undo => self.undo(false)?,
             Action::Redo => self.undo(true)?,
+            Action::FindEverywhere => {
+                self.finding = true;
+                self.focus = Focus::Todos;
+                self.tree_mut(FOUND);
+                self.bar = Bar::Search { input: Input::new("/"), tree: FOUND };
+                self.mode = Mode::Search;
+            }
             Action::StartSearch => {
                 self.current_item(tree)?;
                 self.bar = Bar::Search { input: Input::new("/"), tree };
