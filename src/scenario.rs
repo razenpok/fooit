@@ -871,6 +871,43 @@ fn find_in_all_workspaces() {
 }
 
 #[test]
+fn left_and_right_leave_an_empty_edit() {
+    let mut app = temp_app("empty-edit");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    press(&mut app, "one");
+    key(&mut app, KeyCode::Enter);
+
+    // left from a new top-level todo goes to the workspaces, leaving nothing behind
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert!(!app.focused_tree().is_todos());
+
+    // right from a new workspace name goes to the todos, like tab
+    press(&mut app, "a");
+    key(&mut app, KeyCode::Right);
+    assert!(app.focused_tree().is_todos());
+    assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one"]);
+
+    // left from a new subtask goes to its parent
+    press(&mut app, "A");
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(highlighted(&app), "one");
+    assert_eq!(descriptions(&app), ["one"]);
+
+    // once something is typed, left and right move the cursor
+    press(&mut app, "ax");
+    key(&mut app, KeyCode::Left);
+    press(&mut app, "y");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one", "yx"]);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

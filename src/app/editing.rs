@@ -184,6 +184,39 @@ impl App {
         added_elsewhere
     }
 
+    pub(super) fn editing_empty(&self, tree: TreeRef) -> bool {
+        self.tree(tree).and_then(|t| t.editing()).is_some_and(|e| e.input.value().trim().is_empty())
+    }
+
+    /// Drop an edit with nothing typed, then go on to the parent, or the other list from its
+    /// edge: left from a top-level todo to the workspaces, right from the workspaces to the todos
+    pub(super) fn leave_empty_edit(&mut self, tree: TreeRef, left: bool) -> Result<()> {
+        let Some(item) = self.tree(tree).and_then(|t| t.editing()).map(|e| e.item) else { return Ok(()) };
+        let parent = match self.tree(tree).and_then(|t| t.draft).filter(|d| d.item == item) {
+            Some(draft) => match draft.parent {
+                Parent::Todo(id) => Some(Item::Todo(id)),
+                Parent::Ws(_) => None,
+            },
+            None => self.db.same_kind_parent(item),
+        };
+
+        match (tree.is_todos(), left) {
+            (true, true) => {
+                self.stop_edit(tree, true);
+                match parent {
+                    Some(parent) => self.highlight_item(tree, parent),
+                    None => return self.run(Action::SwitchFocus),
+                }
+            }
+            (false, false) => {
+                self.stop_edit(tree, true);
+                return self.run(Action::SwitchFocus);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     pub(super) fn set_filter(&mut self, tree: TreeRef, filter: String) {
         self.tree_mut(tree).filter = filter;
         self.rebuild(tree);

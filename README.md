@@ -73,7 +73,8 @@ completed and edited there; adding and arranging happens in their workspace.
 While editing, `enter` saves (and on a description, starts a new sibling) and
 `escape` discards, asking first if something changed. The up and down arrows save the
 edit and then move the cursor. `tab` / `shift+tab` nest the item under the one above
-it / move it out of its parent while you keep typing, also for a new item.
+it / move it out of its parent while you keep typing, also for a new item. With nothing
+typed yet, left and right leave the edit and move on as they do outside it.
 
 In move mode (`m`) up and down move the item among its siblings and right and left
 nest it or move it out. For a todo, `tab` (or left from the top level) goes to the

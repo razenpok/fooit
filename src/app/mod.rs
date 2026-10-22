@@ -896,6 +896,8 @@ impl App {
                 self.discard_edit(tree);
                 Ok(())
             }
+            // with nothing typed, left and right leave the edit and move on like outside it
+            ("left" | "right", Field::Description) if self.editing_empty(tree) => self.leave_empty_edit(tree, key == "left"),
             ("escape" | "enter", _) => {
                 self.stop_edit(tree, false);
                 Ok(())
