@@ -813,8 +813,9 @@ impl App {
 
         let result = match (key, field) {
             ("enter", Field::Description) => {
+                // an empty list is left when a #workspace sent the only new todo elsewhere
                 if self.stop_edit(tree, false)
-                    && self.current_item(tree).map(|i| !self.db.description(i).is_empty()).unwrap_or(false)
+                    && self.current_item(tree).map(|i| !self.db.description(i).is_empty()).unwrap_or(true)
                 {
                     self.add_sibling(tree)
                 } else {

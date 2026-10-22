@@ -143,9 +143,11 @@ impl App {
     }
 
     /// Add a new item to the database once it has a description, otherwise drop it and
-    /// highlight the row above; returns whether it was added
+    /// highlight the row above, as also when it went to another workspace; returns whether it
+    /// was added
     pub(super) fn finish_draft(&mut self, tree: TreeRef, draft: Draft, edit: &Edit, discard: bool) -> bool {
         let description = edit.input.value().trim().to_string();
+        let mut added_elsewhere = false;
         if !discard && !description.is_empty() {
             let siblings = self.db.children(draft.parent, draft.item.is_todo());
             let position = draft.after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
@@ -156,9 +158,17 @@ impl App {
             };
             match added {
                 Ok(item) => {
-                    self.refresh_all();
-                    self.highlight_item(tree, item);
-                    return true;
+                    let workspace = self.workspace_of(item);
+                    if !tree.is_todos() || workspace == self.current_ws().map(Item::Ws) {
+                        self.refresh_all();
+                        self.highlight_item(tree, item);
+                        return true;
+                    }
+                    // a #workspace sent it elsewhere, so the cursor goes back like for a dropped one
+                    if let Some(ws) = workspace {
+                        self.notify(format!("Added to {}", self.db.description(ws)), Level::Info);
+                    }
+                    added_elsewhere = true;
                 }
                 Err(e) => self.notify(e, Level::Error),
             }
@@ -171,7 +181,7 @@ impl App {
         state.clamp(index);
         let highlighted = state.highlighted;
         self.set_highlight(tree, highlighted);
-        false
+        added_elsewhere
     }
 
     pub(super) fn set_filter(&mut self, tree: TreeRef, filter: String) {

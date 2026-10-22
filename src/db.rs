@@ -821,9 +821,15 @@ impl Db {
         Ok(true)
     }
 
-    /// Add a todo from text that may end in a due date and hold an urgency, see `dates::quick_add`
+    /// Add a todo from text that may end in a due date and hold an urgency, see `dates::quick_add`,
+    /// and name a workspace to go to the bottom of with `#name` (or the start of the name)
     pub fn quick_add_todo(&mut self, parent: Parent, position: Option<usize>, text: &str) -> Result<Item> {
-        let (description, due, urgency) = dates::quick_add(text);
+        let (text, workspace) = self.workspace_tag(text);
+        let (parent, position) = match workspace {
+            Some(ws) => (Parent::Ws(ws), None),
+            None => (parent, position),
+        };
+        let (description, due, urgency) = dates::quick_add(&text);
         let item = self.insert_with_description(parent, true, position, &description)?;
         if due.is_some() || urgency.is_some() {
             let Item::Todo(id) = item else { return Ok(item) };
@@ -834,6 +840,31 @@ impl Db {
             }
         }
         Ok(item)
+    }
+
+    /// The last `#word` in a text that names a workspace, and the text without it. A name
+    /// that is typed out in full wins over one it is only the start of
+    fn workspace_tag(&self, text: &str) -> (String, Option<i64>) {
+        let names: Vec<(i64, String)> = self
+            .workspaces
+            .values()
+            .filter(|w| !w.is_root)
+            .map(|w| (w.id, w.description.to_lowercase().replace(' ', "")))
+            .collect();
+        let mut words: Vec<&str> = text.split_whitespace().collect();
+        for i in (0..words.len()).rev() {
+            let Some(tag) = words[i].strip_prefix('#').filter(|t| !t.is_empty()).map(str::to_lowercase) else {
+                continue;
+            };
+            let exact = names.iter().find(|(_, name)| *name == tag);
+            let mut prefixed: Vec<_> = names.iter().filter(|(_, name)| name.starts_with(&tag)).collect();
+            prefixed.sort();
+            if let Some((id, _)) = exact.or(prefixed.first().copied()) {
+                words.remove(i);
+                return (words.join(" "), Some(*id));
+            }
+        }
+        (text.to_string(), None)
     }
 
     pub fn snapshot(&self) -> Snapshot {

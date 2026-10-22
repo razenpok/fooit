@@ -633,6 +633,38 @@ fn new_todos_read_due_dates_and_urgency() {
 }
 
 #[test]
+fn hash_sends_a_new_todo_to_a_workspace() {
+    let mut app = temp_app("hash");
+    press(&mut app, "aWork");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Home stuff");
+    save_and_open(&mut app);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+
+    // the start of the name is enough, spaces left out; an unknown tag stays in the text
+    press(&mut app, "buy soap #homes fri");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "read #nowhere");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["read #nowhere"]);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "j");
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["buy soap"]);
+    let db::Item::Todo(id) = app.tree(app.focused_tree()).unwrap().rows[0].item else { panic!() };
+    assert!(app.db.todo(id).unwrap().due.is_some());
+
+    // and from the command line
+    let ws = add_task(&mut app.db, "call bank #work").unwrap();
+    assert_eq!(ws, "Work");
+}
+
+#[test]
 fn undo_and_redo() {
     let mut app = temp_app("undo");
     press(&mut app, "aWork");
