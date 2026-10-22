@@ -231,12 +231,11 @@ impl App {
             Action::Snooze => {
                 let Item::Todo(id) = self.current_item(tree)? else { return Ok(()) };
                 let Some(mut todo) = self.db.todo(id).cloned() else { return Ok(()) };
-                let days = self.count.unwrap_or(1) as i64;
-                todo.due = Some(snoozed(todo.due, days));
+                let due = snoozed(todo.due, self.count.unwrap_or(1) as i64);
+                todo.due = Some(due);
                 self.db.update_todo(todo)?;
                 self.refresh_all();
-                let plural = if days == 1 { "" } else { "s" };
-                self.notify(format!("Snoozed by {} day{}", days, plural), Level::Info);
+                self.notify(format!("Snoozed to {}", crate::ui::due_text(due, dates::now())), Level::Info);
             }
             Action::ToggleShowCompleted => {
                 self.show_completed = !self.show_completed;

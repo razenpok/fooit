@@ -269,7 +269,7 @@ fn overdue(todo: &crate::db::Todo) -> bool {
 }
 
 /// A due date relative to now: today, tomorrow, a weekday within the week, otherwise the date
-fn due_text(due: chrono::NaiveDateTime, now: chrono::NaiveDateTime) -> String {
+pub fn due_text(due: chrono::NaiveDateTime, now: chrono::NaiveDateTime) -> String {
     use chrono::Datelike;
     let days = (due.date() - now.date()).num_days();
     let day = match days {
