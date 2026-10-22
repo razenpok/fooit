@@ -164,7 +164,13 @@ fn arrows_move_between_levels() {
     assert_eq!(highlighted(&app), "two");
     key(&mut app, KeyCode::Left);
     assert_eq!(highlighted(&app), "one");
+    // left from the top level goes to the workspaces like tab, right comes back like tab
     key(&mut app, KeyCode::Left);
+    assert!(!app.focused_tree().is_todos());
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "gg");
     assert_eq!(highlighted(&app), "one");
     key(&mut app, KeyCode::Right);
     key(&mut app, KeyCode::Right);

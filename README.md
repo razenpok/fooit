@@ -46,7 +46,7 @@ completed and edited there; adding and arranging happens in their workspace.
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
 | `j` / `k` | move down / up a row, wrapping around the ends |
 | down / up | next / previous item on the same level, wrapping around it |
-| right, `l` / left, `h` | into the subtasks / to the parent |
+| right, `l` / left, `h` | into the subtasks / to the parent; from the workspaces, or a top-level todo, like `tab` |
 | `gg` / `G` | top / bottom |
 | `i` `d` `r` | edit description / due date / recurrence (`1d`, `2w`, `12h`) |
 | `a`, `enter` / `A` | add sibling / child |

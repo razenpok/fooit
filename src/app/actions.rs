@@ -97,6 +97,8 @@ impl App {
                     self.highlight_item(tree, item);
                 }
             }
+            // from the workspaces, right goes on to the todos like tab
+            Action::IntoChildren if tree == TreeRef::Workspaces => return self.run(Action::SwitchFocus),
             Action::IntoChildren => {
                 let item = self.current_item(tree)?;
                 if self.collapsed.remove(&item) {
@@ -110,8 +112,11 @@ impl App {
             }
             Action::ToParent => {
                 let item = self.current_item(tree)?;
-                if let Some(parent) = self.db.same_kind_parent(item) {
-                    self.highlight_item(tree, parent);
+                match self.db.same_kind_parent(item) {
+                    Some(parent) if tree != TODAY => self.highlight_item(tree, parent),
+                    // from the top of the todos, left goes back to the workspaces like tab
+                    _ if tree.is_todos() => return self.run(Action::SwitchFocus),
+                    _ => {}
                 }
             }
             Action::GoToTop => {
