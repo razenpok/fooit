@@ -55,7 +55,6 @@ pub enum Field {
     Description,
     Due,
     Urgency,
-    Effort,
     Recurrence,
 }
 
@@ -66,7 +65,6 @@ impl Field {
             Field::Description => "description",
             Field::Due => "due",
             Field::Urgency => "urgency",
-            Field::Effort => "effort",
             Field::Recurrence => "recurrence",
         }
     }

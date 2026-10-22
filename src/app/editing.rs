@@ -24,7 +24,6 @@ impl App {
                         0 => String::new(),
                         u => u.to_string(),
                     },
-                    Field::Effort => todo.effort.to_string(),
                     Field::Recurrence => todo.recurrence.map(dates::recurrence_to_string).unwrap_or_default(),
                     Field::Status => match todo.status() {
                         "completed" => "x".into(),
@@ -88,7 +87,6 @@ impl App {
                     todo.pending = true;
                 }
             }
-            Field::Effort => todo.effort = parse_int(&value)?,
             Field::Urgency => todo.urgency = parse_int(&value)?,
             Field::Status => todo.pending = value != "COMPLETED",
             Field::Description => unreachable!(),

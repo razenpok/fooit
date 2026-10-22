@@ -251,7 +251,6 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
             };
             vec![bold(format!("!{}", todo.urgency), color)]
         }
-        Field::Effort => vec![Span::raw(todo.effort.to_string())],
         Field::Recurrence => match todo.recurrence {
             None => vec![],
             Some(r) => {

@@ -68,7 +68,6 @@ impl App {
                         | Action::EditDescription
                         | Action::EditDue
                         | Action::EditRecurrence
-                        | Action::EditEffort
                         | Action::CopyDescription
                         | Action::CopyModel
                 ))
@@ -150,7 +149,6 @@ impl App {
             Action::EditDescription => self.start_edit(tree, Field::Description)?,
             Action::EditDue => self.start_edit(tree, Field::Due)?,
             Action::EditRecurrence => self.start_edit(tree, Field::Recurrence)?,
-            Action::EditEffort => self.start_edit(tree, Field::Effort)?,
             Action::AddSibling => self.add_sibling(tree)?,
             Action::AddChild => self.add_child(tree)?,
             Action::ToggleExpand => {
