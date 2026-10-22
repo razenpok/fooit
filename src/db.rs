@@ -829,13 +829,14 @@ impl Db {
             Some(ws) => (Parent::Ws(ws), None),
             None => (parent, position),
         };
-        let (description, due, urgency) = dates::quick_add(&text);
-        let item = self.insert_with_description(parent, true, position, &description)?;
-        if due.is_some() || urgency.is_some() {
+        let read = dates::quick_add(&text);
+        let item = self.insert_with_description(parent, true, position, &read.description)?;
+        if read.due.is_some() || read.urgency.is_some() || read.recurrence.is_some() {
             let Item::Todo(id) = item else { return Ok(item) };
             if let Some(mut todo) = self.todo(id).cloned() {
-                todo.due = due.or(todo.due);
-                todo.urgency = urgency.unwrap_or(todo.urgency);
+                todo.due = read.due.or(todo.due);
+                todo.urgency = read.urgency.unwrap_or(todo.urgency);
+                todo.recurrence = read.recurrence.or(todo.recurrence);
                 self.update_todo(todo)?;
             }
         }

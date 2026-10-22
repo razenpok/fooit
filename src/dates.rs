@@ -444,11 +444,62 @@ fn parse_from_now(value: &str) -> Option<NaiveDateTime> {
     }
 }
 
+/// What a new todo's text asks for, see `split_due` and `take_every`
+pub struct QuickAdd {
+    pub description: String,
+    pub due: Option<NaiveDateTime>,
+    pub urgency: Option<i64>,
+    pub recurrence: Option<TimeDelta>,
+}
+
+/// Read a new todo's text: a recurrence (`every 3d`), urgency (`!2`) and due date, with the rest
+/// as the description. A todo that repeats without a due date is due today
+pub fn quick_add(text: &str) -> QuickAdd {
+    let (text, recurrence) = take_every(text);
+    let (description, mut due, urgency) = split_due(&text);
+    if recurrence.is_some() && due.is_none() {
+        due = now().date().and_hms_opt(0, 0, 0);
+    }
+    QuickAdd { description, due, urgency, recurrence }
+}
+
+/// The last `every ...` in a text, such as `every 3d`, `every day` or `every 2 weeks`, and the
+/// text without it
+fn take_every(text: &str) -> (String, Option<TimeDelta>) {
+    let mut words: Vec<&str> = text.split_whitespace().collect();
+    let unit = |w: &str| match w.to_lowercase().trim_end_matches('s') {
+        "minute" | "min" => Some('m'),
+        "hour" => Some('h'),
+        "day" => Some('d'),
+        "week" => Some('w'),
+        _ => None,
+    };
+    for i in (1..words.len()).rev() {
+        if !words[i].eq_ignore_ascii_case("every") {
+            continue;
+        }
+        let rest = &words[i + 1..];
+        let (recurrence, used) = match rest {
+            [amount, u, ..] if amount.parse::<u32>().is_ok() && unit(u).is_some() => {
+                (parse_recurrence(&format!("{}{}", amount, unit(u).unwrap())), 2)
+            }
+            [u, ..] if unit(u).is_some() => (parse_recurrence(&format!("1{}", unit(u).unwrap())), 1),
+            [token, ..] => (parse_recurrence(&token.to_lowercase()), 1),
+            [] => continue,
+        };
+        if let Ok(recurrence) = recurrence {
+            words.drain(i..i + 1 + used);
+            return (words.join(" "), Some(recurrence));
+        }
+    }
+    (text.to_string(), None)
+}
+
 /// What a new todo's text asks for: an urgency as `!1` to `!4` anywhere, and a due date in its
 /// last words, such as `tomorrow`, `fri 10:30`, `on oct 30`, `at 5pm` or a time from now like
 /// `1d 5h` or `in 30m`. The rest is the
 /// description. Plain words that could be dates ("sun", "may") and lone numbers are left alone
-pub fn quick_add(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
+fn split_due(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
     let mut words: Vec<&str> = text.split_whitespace().collect();
 
     let is_urgency = |w: &str| matches!(w, "!1" | "!2" | "!3" | "!4");
@@ -521,6 +572,25 @@ mod tests {
     use chrono::Timelike;
 
     #[test]
+    fn quick_add_reads_recurrence() {
+        let today = now().date();
+        let todo = quick_add("water plants every 3d");
+        assert_eq!(todo.description, "water plants");
+        assert_eq!(todo.recurrence, Some(Duration::days(3)));
+        assert_eq!(todo.due.unwrap().date(), today);
+
+        let todo = quick_add("standup every day at 10:00 !2");
+        assert_eq!((todo.description.as_str(), todo.urgency), ("standup", Some(2)));
+        assert_eq!(todo.recurrence, Some(Duration::days(1)));
+        assert_eq!(todo.due.unwrap().hour(), 10);
+
+        assert_eq!(quick_add("review every 2 weeks").recurrence, Some(Duration::weeks(2)));
+        assert_eq!(quick_add("stretch every hour").recurrence, Some(Duration::hours(1)));
+        let todo = quick_add("every day counts");
+        assert_eq!((todo.description.as_str(), todo.recurrence), ("every day counts", None));
+    }
+
+    #[test]
     fn due_from_now() {
         let today = now().date();
         assert_eq!(parse_due("1d").unwrap(), (today + Duration::days(1)).and_hms_opt(0, 0, 0).unwrap());
@@ -537,31 +607,31 @@ mod tests {
     #[test]
     fn quick_add_reads_due_dates_and_urgency() {
         let today = now().date();
-        let (text, due, urgency) = quick_add("buy milk tomorrow !2");
+        let (text, due, urgency) = split_due("buy milk tomorrow !2");
         assert_eq!((text.as_str(), urgency), ("buy milk", Some(2)));
         assert_eq!(due.unwrap().date(), today + Duration::days(1));
 
-        let (text, due, _) = quick_add("call mom on friday at 10:30");
+        let (text, due, _) = split_due("call mom on friday at 10:30");
         assert_eq!(text, "call mom");
         let due = due.unwrap();
         assert_eq!((due.weekday(), due.hour(), due.minute()), (Weekday::Fri, 10, 30));
 
-        let (text, due, _) = quick_add("pay rent oct 30");
+        let (text, due, _) = split_due("pay rent oct 30");
         assert_eq!(text, "pay rent");
         assert_eq!((due.unwrap().month(), due.unwrap().day()), (10, 30));
 
-        let (text, due, _) = quick_add("standup at 5pm");
+        let (text, due, _) = split_due("standup at 5pm");
         assert_eq!((text.as_str(), due.unwrap().hour()), ("standup", 17));
 
-        let (text, due, _) = quick_add("call back 1d 5h");
+        let (text, due, _) = split_due("call back 1d 5h");
         assert_eq!(text, "call back");
         assert!((due.unwrap() - now() - Duration::hours(29)).num_seconds().abs() < 5);
-        let (text, due, _) = quick_add("renew passport in 2w !2");
+        let (text, due, _) = split_due("renew passport in 2w !2");
         assert_eq!((text.as_str(), due.unwrap().date()), ("renew passport", today + Duration::weeks(2)));
 
         // words that only might be dates stay in the description
         for plain in ["read chapter 5", "fix the sun", "it may", "tomorrow", "plan today's meeting", "!5 stars", "5h", "run 5k"] {
-            let (text, due, urgency) = quick_add(plain);
+            let (text, due, urgency) = split_due(plain);
             assert_eq!((text.as_str(), due, urgency), (plain, None, None), "{plain}");
         }
     }
