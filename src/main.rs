@@ -3,6 +3,7 @@ mod dates;
 mod db;
 mod migrate;
 mod order;
+mod sync;
 mod input;
 mod keys;
 mod ui;

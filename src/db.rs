@@ -35,6 +35,31 @@ CREATE TABLE todo (
     urgency INTEGER NOT NULL,
     pending INTEGER NOT NULL
 );
+CREATE TABLE share (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    secret TEXT NOT NULL UNIQUE,
+    endpoint TEXT NOT NULL,
+    cursor INTEGER
+);
+CREATE TABLE share_member (
+    share_id INTEGER NOT NULL,
+    ws_uid TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    PRIMARY KEY (share_id, ws_uid)
+);
+CREATE TABLE sync_link (
+    ws_uid TEXT PRIMARY KEY,
+    secret TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    cursor INTEGER
+);
+CREATE TABLE sync_shadow (
+    log_id TEXT NOT NULL,
+    uid TEXT NOT NULL,
+    record TEXT NOT NULL,
+    PRIMARY KEY (log_id, uid)
+);
 ";
 
 const DUE_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
