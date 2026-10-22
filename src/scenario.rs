@@ -105,8 +105,8 @@ fn arrows_and_tab_finish_editing() {
 }
 
 #[test]
-fn shift_arrows_move_between_top_level_items() {
-    let mut app = temp_app("top-level");
+fn arrows_move_between_levels() {
+    let mut app = temp_app("levels");
     press(&mut app, "aWork");
     key(&mut app, KeyCode::Tab);
     for d in ["one", "two", "three"] {
@@ -118,23 +118,44 @@ fn shift_arrows_move_between_top_level_items() {
     press(&mut app, "k>>Achild");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
-    assert_eq!(descriptions(&app), ["one", "two", "child", "three"]);
+    assert_eq!(depths(&app), [("one".into(), 0), ("two".into(), 1), ("child".into(), 2), ("three".into(), 0)]);
     assert_eq!(highlighted(&app), "child");
 
-    let shift = |app: &mut app::App, code| app.on_key(KeyEvent::new(code, KeyModifiers::SHIFT));
-    shift(&mut app, KeyCode::Up);
+    // left goes to the parent, right into the subtasks
+    key(&mut app, KeyCode::Left);
+    assert_eq!(highlighted(&app), "two");
+    key(&mut app, KeyCode::Left);
     assert_eq!(highlighted(&app), "one");
-    shift(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Left);
     assert_eq!(highlighted(&app), "one");
-    shift(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(highlighted(&app), "child");
+    key(&mut app, KeyCode::Right);
+    assert_eq!(highlighted(&app), "child");
+
+    // up and down stay on the level, wrapping around it; j and k go row by row
+    key(&mut app, KeyCode::Up);
+    assert_eq!(highlighted(&app), "child");
+    press(&mut app, "j");
+    assert_eq!(highlighted(&app), "three");
+    key(&mut app, KeyCode::Down);
+    assert_eq!(highlighted(&app), "one");
+    key(&mut app, KeyCode::Down);
     assert_eq!(highlighted(&app), "three");
 
-    // also finishes an edit
+    // a collapsed parent opens when going into it
     key(&mut app, KeyCode::Up);
-    press(&mut app, "i!");
-    shift(&mut app, KeyCode::Up);
+    press(&mut app, "z");
+    assert_eq!(descriptions(&app), ["one", "three"]);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(highlighted(&app), "two");
+
+    // also finishes an edit
+    press(&mut app, "ji!");
+    key(&mut app, KeyCode::Up);
     assert_eq!(app.mode, app::Mode::Normal);
-    assert_eq!(highlighted(&app), "one");
+    assert_eq!(highlighted(&app), "child!");
     assert_eq!(descriptions(&app), ["one", "two", "child!", "three"]);
 }
 

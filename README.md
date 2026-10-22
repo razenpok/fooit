@@ -34,14 +34,15 @@ drops it.
 | key | action |
 | --- | --- |
 | `tab` | switch between workspaces and todos (entering todos starts a new todo) |
-| `j` / `k`, down / up | move down / up, wrapping around the ends |
-| shift+down / shift+up | next / previous top-level item |
+| `j` / `k` | move down / up a row, wrapping around the ends |
+| down / up | next / previous item on the same level, wrapping around it |
+| right, `l` / left, `h` | into the subtasks / to the parent |
 | `gg` / `G` | top / bottom |
 | `i` `d` | edit description / due date |
 | `a`, `enter` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
-| `>>` / `<<`, right / left | indent / dedent |
+| `>>` / `<<` | indent / dedent |
 | `xx` | remove (asks for confirmation) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
@@ -55,8 +56,8 @@ drops it.
 | `q`, `ctrl+q`, `ctrl+c` | quit |
 
 While editing, `enter` saves (and on a description, starts a new sibling) and
-`escape` discards, asking first if something changed. The up and down arrows (also
-with shift) and `tab` save the edit and then move the cursor or switch lists.
+`escape` discards, asking first if something changed. The up and down arrows and
+`tab` save the edit and then move the cursor or switch lists.
 
 Completed todos are hidden, once the cursor has left them and their children.
 

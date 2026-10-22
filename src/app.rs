@@ -876,9 +876,9 @@ impl App {
                 self.stop_edit(tree, false);
                 Ok(())
             }
-            ("up" | "down" | "shift+up" | "shift+down", _) => {
+            ("up" | "down", _) => {
                 // pick the target first, the edited item may be dropped when it stays empty
-                let target = self.move_target(tree, key.ends_with("down"), key.starts_with("shift+"));
+                let target = self.sibling_target(tree, key == "down");
                 self.stop_edit(tree, false);
                 if let Some(item) = target {
                     self.highlight_item(tree, item);
@@ -1255,24 +1255,35 @@ impl App {
     // ------------------------------------------------------------------
     // Actions
 
-    /// The item moving the cursor up or down lands on, wrapping around the ends of the list;
-    /// moving between top-level items stops at the ends
-    fn move_target(&mut self, tree: TreeRef, down: bool, top_level: bool) -> Option<Item> {
+    /// The row moving the cursor up or down lands on, wrapping around the ends of the list
+    fn move_target(&mut self, tree: TreeRef, down: bool) -> Option<Item> {
         let state = self.tree_mut(tree);
-        if top_level {
-            let found = |&i: &usize| state.rows[i].depth == 0 && state.rows[i].enabled;
-            let index = match (state.highlighted, down) {
-                (None, true) => (0..state.rows.len()).find(found),
-                (None, false) => (0..state.rows.len()).rev().find(found),
-                (Some(h), true) => (h + 1..state.rows.len()).find(found),
-                (Some(h), false) => (0..h).rev().find(found),
-            };
-            return index.map(|i| state.rows[i].item);
-        }
         if state.rows.is_empty() {
             return None;
         }
         state.next_enabled(down).map(|i| state.rows[i].item)
+    }
+
+    /// The next or previous item on the highlighted item's level, wrapping around its siblings
+    fn sibling_target(&mut self, tree: TreeRef, down: bool) -> Option<Item> {
+        let state = self.tree_mut(tree);
+        let rows = &state.rows;
+        let Some(h) = state.highlighted.filter(|h| *h < rows.len()) else {
+            return self.move_target(tree, down);
+        };
+        let depth = rows[h].depth;
+        let start = (0..h).rev().find(|i| rows[*i].depth < depth).map_or(0, |parent| parent + 1);
+        let end = (h + 1..rows.len()).find(|i| rows[*i].depth < depth).unwrap_or(rows.len());
+        let siblings: Vec<usize> = (start..end).filter(|i| rows[*i].depth == depth && rows[*i].enabled).collect();
+        let n = siblings.len();
+        let next = match siblings.iter().position(|i| *i == h) {
+            _ if n == 0 => return None,
+            Some(at) if down => siblings[(at + 1) % n],
+            Some(at) => siblings[(at + n - 1) % n],
+            None if down => siblings[0],
+            None => siblings[n - 1],
+        };
+        Some(rows[next].item)
     }
 
     fn run(&mut self, action: Action) -> Result<()> {
@@ -1288,11 +1299,31 @@ impl App {
                 }
                 Focus::Todos => self.focus = Focus::Workspaces,
             },
-            Action::MoveDown | Action::MoveUp | Action::MoveDownTopLevel | Action::MoveUpTopLevel => {
-                let down = matches!(action, Action::MoveDown | Action::MoveDownTopLevel);
-                let top_level = matches!(action, Action::MoveDownTopLevel | Action::MoveUpTopLevel);
-                if let Some(item) = self.move_target(tree, down, top_level) {
+            Action::MoveDown | Action::MoveUp => {
+                if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
                     self.highlight_item(tree, item);
+                }
+            }
+            Action::NextSibling | Action::PreviousSibling => {
+                if let Some(item) = self.sibling_target(tree, action == Action::NextSibling) {
+                    self.highlight_item(tree, item);
+                }
+            }
+            Action::IntoChildren => {
+                let item = self.current_item(tree)?;
+                if self.collapsed.remove(&item) {
+                    self.refresh_all();
+                }
+                let state = self.tree_mut(tree);
+                let child = state.index_of(item).and_then(|i| state.rows.get(i + 1).filter(|r| r.depth > state.rows[i].depth));
+                if let Some(child) = child.map(|r| r.item) {
+                    self.highlight_item(tree, child);
+                }
+            }
+            Action::ToParent => {
+                let item = self.current_item(tree)?;
+                if let Some(parent) = self.db.same_kind_parent(item) {
+                    self.highlight_item(tree, parent);
                 }
             }
             Action::GoToTop => {

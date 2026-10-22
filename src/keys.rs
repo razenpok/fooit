@@ -7,8 +7,10 @@ pub enum Action {
     SwitchFocus,
     MoveDown,
     MoveUp,
-    MoveDownTopLevel,
-    MoveUpTopLevel,
+    NextSibling,
+    PreviousSibling,
+    IntoChildren,
+    ToParent,
     EditDescription,
     EditDue,
     EditRecurrence,
@@ -46,8 +48,10 @@ impl Action {
             Action::SwitchFocus => "Switch focus between the workspace and the todo list",
             Action::MoveDown => "Move the cursor down in the focused list",
             Action::MoveUp => "Move the cursor up in the focused list",
-            Action::MoveDownTopLevel => "Move the cursor to the next top-level item",
-            Action::MoveUpTopLevel => "Move the cursor to the previous top-level item",
+            Action::NextSibling => "Move the cursor to the next item on the same level",
+            Action::PreviousSibling => "Move the cursor to the previous item on the same level",
+            Action::IntoChildren => "Move the cursor into the subtasks of the highlighted item",
+            Action::ToParent => "Move the cursor to the parent of the highlighted item",
             Action::EditDescription => "Start editing the description of the focused item",
             Action::EditDue => "Start editing the due date of the todo",
             Action::EditRecurrence => "Start editing the recurrence of the todo",
@@ -100,10 +104,12 @@ impl KeyManager {
         };
         let defaults: &[(&[&str], Action)] = &[
             (&["<tab>"], Action::SwitchFocus),
-            (&["j", "<down>"], Action::MoveDown),
-            (&["k", "<up>"], Action::MoveUp),
-            (&["<shift+down>"], Action::MoveDownTopLevel),
-            (&["<shift+up>"], Action::MoveUpTopLevel),
+            (&["j"], Action::MoveDown),
+            (&["k"], Action::MoveUp),
+            (&["<down>"], Action::NextSibling),
+            (&["<up>"], Action::PreviousSibling),
+            (&["<right>", "l"], Action::IntoChildren),
+            (&["<left>", "h"], Action::ToParent),
             (&["i"], Action::EditDescription),
             (&["d"], Action::EditDue),
             (&["r"], Action::EditRecurrence),
@@ -116,8 +122,8 @@ impl KeyManager {
             (&["A"], Action::AddChild),
             (&["J"], Action::ShiftDown),
             (&["K"], Action::ShiftUp),
-            (&[">>", "<right>"], Action::Indent),
-            (&["<<", "<left>"], Action::Dedent),
+            (&[">>"], Action::Indent),
+            (&["<<"], Action::Dedent),
             (&["xx"], Action::RemoveNode),
             (&["y"], Action::CopyDescription),
             (&["Y"], Action::CopyModel),
@@ -243,9 +249,10 @@ mod tests {
         assert!(matches!(km.register("g", true), KeyMatch::Found(Action::GoToTop)));
         assert!(matches!(km.register("<", true), KeyMatch::Multiple));
         assert!(matches!(km.register("<", true), KeyMatch::Found(Action::Dedent)));
-        assert!(matches!(km.register("left", true), KeyMatch::Found(Action::Dedent)));
-        assert!(matches!(km.register("right", true), KeyMatch::Found(Action::Indent)));
-        assert!(matches!(km.register("shift+up", true), KeyMatch::Found(Action::MoveUpTopLevel)));
+        assert!(matches!(km.register("left", true), KeyMatch::Found(Action::ToParent)));
+        assert!(matches!(km.register("right", true), KeyMatch::Found(Action::IntoChildren)));
+        assert!(matches!(km.register("down", true), KeyMatch::Found(Action::NextSibling)));
+        assert!(matches!(km.register("j", true), KeyMatch::Found(Action::MoveDown)));
         assert!(matches!(km.register("tab", true), KeyMatch::Found(Action::SwitchFocus)));
         assert!(matches!(km.register("x", true), KeyMatch::Multiple));
         assert!(matches!(km.register("q", true), KeyMatch::NoMatch));
