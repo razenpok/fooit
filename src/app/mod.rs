@@ -160,13 +160,26 @@ pub const TODAY_ID: i64 = -2;
 pub const TODAY: TreeRef = TreeRef::Todos(TODAY_ID);
 pub const TODAY_ROW: Item = Item::Ws(TODAY_ID);
 
+/// The Upcoming view, under Today: the todos due in the next week
+pub const UPCOMING_ID: i64 = -4;
+pub const UPCOMING: TreeRef = TreeRef::Todos(UPCOMING_ID);
+pub const UPCOMING_ROW: Item = Item::Ws(UPCOMING_ID);
+
+/// How many days ahead Upcoming looks
+pub const UPCOMING_DAYS: i64 = 7;
+
+/// The rows at the top of the workspaces that open a view rather than a workspace
+pub fn is_view_row(item: Item) -> bool {
+    item == TODAY_ROW || item == UPCOMING_ROW
+}
+
 /// The todos of every workspace matching a search (ctrl+f)
 pub const FOUND_ID: i64 = -3;
 pub const FOUND: TreeRef = TreeRef::Todos(FOUND_ID);
 
 /// Lists made up of todos from every workspace, which have no order or nesting of their own
 pub fn is_gathered(tree: TreeRef) -> bool {
-    tree == TODAY || tree == FOUND
+    tree == TODAY || tree == UPCOMING || tree == FOUND
 }
 
 /// An item being moved with the keyboard, and where it was, to put it back on escape
@@ -351,7 +364,7 @@ impl App {
 
     /// Open on the first workspace's todos, adding a new one
     pub fn start(&mut self) {
-        let first = self.ws_tree.rows.iter().position(|r| r.item != TODAY_ROW);
+        let first = self.ws_tree.rows.iter().position(|r| !is_view_row(r.item));
         self.set_highlight(TreeRef::Workspaces, first);
         if self.current_ws().is_some() {
             if let Err(e) = self.run(Action::SwitchFocus) {
@@ -442,7 +455,11 @@ impl App {
 
         if is_gathered(tree) {
             let filter = filter.to_lowercase();
-            let rows = if tree == TODAY { self.today_rows(&kept, &filter) } else { self.found_rows(&kept, &filter) };
+            let rows = match tree {
+                TODAY => self.today_rows(&kept, &filter),
+                UPCOMING => self.upcoming_rows(&kept, &filter),
+                _ => self.found_rows(&kept, &filter),
+            };
             self.set_rows(tree, rows, highlighted_item, highlighted_index);
             return;
         }
@@ -490,12 +507,41 @@ impl App {
         }
         let mut rows = w.rows;
         if tree == TreeRef::Workspaces && !rows.is_empty() {
+            rows.insert(0, Row { item: UPCOMING_ROW, depth: 0, enabled: "upcoming".contains(&filter) });
             rows.insert(0, Row { item: TODAY_ROW, depth: 0, enabled: "today".contains(&filter) });
         }
         self.set_rows(tree, rows, highlighted_item, highlighted_index);
     }
 
     /// The todos due today or before, soonest first, plus a completed one under the cursor
+    /// Open todos due after today and within the next week, soonest first
+    fn upcoming_rows(&self, kept: &HashSet<Item>, filter: &str) -> Vec<Row> {
+        let today = dates::now().date();
+        let soon = |d: chrono::NaiveDateTime| d.date() > today && (d.date() - today).num_days() <= UPCOMING_DAYS;
+        let mut due: Vec<_> = self
+            .db
+            .todos
+            .values()
+            .filter(|t| t.due.is_some_and(soon))
+            .filter(|t| t.pending || kept.contains(&Item::Todo(t.id)) || self.show_completed)
+            .map(|t| (t.due, t.description.to_lowercase(), Item::Todo(t.id)))
+            .collect();
+        due.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        due.into_iter()
+            .map(|(_, description, item)| Row { item, depth: 0, enabled: description.contains(filter) })
+            .collect()
+    }
+
+    /// Open todos due in the next week, after today
+    pub fn due_upcoming(&self) -> usize {
+        let today = dates::now().date();
+        self.db
+            .todos
+            .values()
+            .filter(|t| t.pending && t.due.is_some_and(|d| d.date() > today && (d.date() - today).num_days() <= UPCOMING_DAYS))
+            .count()
+    }
+
     fn today_rows(&self, kept: &HashSet<Item>, filter: &str) -> Vec<Row> {
         let today = dates::now().date();
         let mut due: Vec<_> = self
@@ -602,7 +648,7 @@ impl App {
         self.rebuild(TreeRef::Workspaces);
         let existing: Vec<i64> = self.todo_trees.keys().copied().collect();
         for ws in existing {
-            if ws == TODAY_ID || ws == FOUND_ID || self.db.exists(Item::Ws(ws)) {
+            if [TODAY_ID, UPCOMING_ID, FOUND_ID].contains(&ws) || self.db.exists(Item::Ws(ws)) {
                 self.rebuild(TreeRef::Todos(ws));
             } else {
                 self.todo_trees.remove(&ws);

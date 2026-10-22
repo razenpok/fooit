@@ -218,7 +218,7 @@ fn children_are_shown_on_start() {
     key(&mut app, KeyCode::Esc);
 
     let mut app = app::App::new(db::Db::open(&path).unwrap());
-    press(&mut app, "jj");
+    press(&mut app, "jjj"); // past Today and Upcoming
     key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::Esc);
     assert_eq!(descriptions(&app), ["parent", "child"]);
@@ -554,7 +554,7 @@ fn closing_while_adding_keeps_no_empty_todo() {
     app.close();
 
     let mut app = app::App::new(db::Db::open(&path).unwrap());
-    press(&mut app, "jj");
+    press(&mut app, "jjj"); // past Today and Upcoming
     key(&mut app, KeyCode::Tab);
     app.close();
     assert_eq!(descriptions(&app), ["typed"]);
@@ -950,6 +950,36 @@ fn snooze_pushes_the_due_date() {
     // a count is only for the action right after it
     press(&mut app, "2js");
     assert_eq!(due(&app, 1), Some(5));
+}
+
+#[test]
+fn upcoming_lists_the_next_week_by_day() {
+    let mut app = temp_app("upcoming");
+    let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for d in ["today thing today", "b 1d", "a 1d", "later 3d", "far 2w"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "ggj");
+    let s = screen(&mut term, &mut app, "upcoming row");
+    assert!(s.contains("Upcoming"), "{s}");
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_tree(), app::UPCOMING);
+    assert_eq!(descriptions(&app), ["a", "b", "later"]);
+
+    // each day is headed once; the cursor goes from todo to todo
+    let s = screen(&mut term, &mut app, "upcoming");
+    let tomorrow = (dates::now().date() + chrono::Duration::days(1)).format("Tomorrow, %b %-d").to_string();
+    let later = (dates::now().date() + chrono::Duration::days(3)).format("%A, %b %-d").to_string();
+    assert_eq!(s.matches(&tomorrow).count(), 1, "{s}");
+    assert!(s.contains(&later), "{s}");
+    press(&mut app, "jj");
+    assert_eq!(highlighted(&app), "later");
 }
 
 #[test]

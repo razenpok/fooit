@@ -1,6 +1,6 @@
 //! Rendering, in the style of lazygit's default theme and layout
 
-use crate::app::{indent, is_draft, is_gathered, layout, row_cells, App, MARKER_WIDTH, FOUND, TODAY, TODAY_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, is_gathered, layout, row_cells, App, MARKER_WIDTH, FOUND, TODAY, TODAY_ROW, UPCOMING, UPCOMING_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -207,6 +207,9 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     if item == TODAY_ROW {
         return vec![Span::raw("Today")];
     }
+    if item == UPCOMING_ROW {
+        return vec![Span::raw("Upcoming")];
+    }
     let Item::Todo(id) = item else {
         return vec![Span::raw(display(app.db.description(item)))];
     };
@@ -370,6 +373,7 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
             }
             Some(spans).filter(|s| !s.is_empty())
         }
+        _ if row.item == UPCOMING_ROW => Some(app.due_upcoming()).filter(|n| *n > 0).map(|n| vec![Span::styled(n.to_string(), dim)]),
         Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| vec![Span::styled(format!("{}/{}", done, all), dim)]),
         Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| vec![Span::styled(open.to_string(), dim)]),
     };
@@ -447,6 +451,7 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
 
     let (number, title) = match tree {
         TODAY => (2, "Today"),
+        UPCOMING => (2, "Upcoming"),
         FOUND => (2, "Found"),
         TreeRef::Todos(_) => (2, "Todos"),
         TreeRef::Workspaces => (1, "Workspaces"),
@@ -474,10 +479,30 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
     // only the rows that end up on screen are built
     let total = inner.width as usize;
     let mut built: HashMap<usize, Vec<Line<'static>>> = HashMap::new();
+    // Upcoming heads each day's first todo with the day
+    let heading = |app: &App, index: usize| -> Option<Line<'static>> {
+        let due = |i: usize| match rows[i].item {
+            Item::Todo(id) => app.db.todo(id).and_then(|t| t.due).map(|d| d.date()),
+            Item::Ws(_) => None,
+        };
+        let day = due(index).filter(|_| tree == UPCOMING)?;
+        if index > 0 && due(index - 1) == Some(day) {
+            return None;
+        }
+        let tomorrow = crate::dates::now().date() + chrono::Duration::days(1);
+        let label = if day == tomorrow { day.format("Tomorrow, %b %-d") } else { day.format("%A, %b %-d") };
+        Some(Line::styled(label.to_string(), Style::new().fg(DIM).add_modifier(Modifier::BOLD)))
+    };
     let mut lines_of = |app: &App, index: usize| -> Vec<Line<'static>> {
         built
             .entry(index)
-            .or_insert_with(|| build_row(app, tree, &rows[index], &widths, total))
+            .or_insert_with(|| {
+                let mut lines = build_row(app, tree, &rows[index], &widths, total);
+                if let Some(heading) = heading(app, index) {
+                    lines.insert(0, heading);
+                }
+                lines
+            })
             .clone()
     };
 
@@ -542,6 +567,17 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
             style = style.add_modifier(Modifier::UNDERLINED).underline_color(Color::Red);
         }
 
+        // a day heading is drawn plainly, above the row it heads
+        let mut lines = lines.into_iter();
+        if heading(app, index).is_some() {
+            if let Some(line) = lines.next() {
+                buf.set_line(inner.x, y, &line, inner.width);
+                y += 1;
+            }
+            if y >= inner.bottom() {
+                break;
+            }
+        }
         let top = y;
         for line in lines {
             if y >= inner.bottom() {

@@ -59,7 +59,7 @@ impl App {
                 | Action::StartSort
                 | Action::RemoveCompleted
         );
-        let on_today_row = self.tree(tree).and_then(|t| t.current()) == Some(TODAY_ROW);
+        let on_today_row = self.tree(tree).and_then(|t| t.current()).is_some_and(is_view_row);
         if on_today_row
             && (changes_row
                 || matches!(

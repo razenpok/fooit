@@ -41,7 +41,8 @@ drops it.
 
 **Today**, at the top of the workspace list, lists the open todos due today or earlier
 from every workspace, soonest first, each with the workspace it is in. Its row shows
-how many are overdue (in red, like `!2`) and how many are due later today. They can be
+how many are overdue (in red, like `!2`) and how many are due later today.
+**Upcoming**, under it, lists what is due in the next seven days, by day. They can be
 completed and edited there; adding and arranging happens in their workspace.
 
 ## Keys

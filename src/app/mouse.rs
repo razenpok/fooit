@@ -67,7 +67,7 @@ impl App {
         }
 
         // the Today row and the Today list cannot be rearranged
-        if item == TODAY_ROW || is_gathered(tree) {
+        if is_view_row(item) || is_gathered(tree) {
             return Ok(());
         }
         self.drag = Some(Drag {
@@ -122,7 +122,7 @@ impl App {
             let onto = self
                 .row_at(x, y)
                 .map(|(_, i)| self.ws_tree.rows[i].item)
-                .filter(|ws| Some(*ws) != current && *ws != TODAY_ROW);
+                .filter(|ws| Some(*ws) != current && !is_view_row(*ws));
             (None, onto)
         } else {
             (self.drop_target(drag, x, y), None)
@@ -208,7 +208,7 @@ impl App {
             (dragged.start.checked_sub(1), Some(dragged.end).filter(|b| *b < rows.len()))
         };
         // nothing goes above or under the Today row
-        let above = above.filter(|a| rows[*a].item != TODAY_ROW);
+        let above = above.filter(|a| !is_view_row(rows[*a].item));
 
         let max = above.map_or(0, |a| rows[a].depth + 1);
         let min = below.map_or(0, |b| rows[b].depth).min(max);

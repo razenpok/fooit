@@ -112,8 +112,9 @@ fn run(name: &str, workspaces: i64, children: i64) {
 
     let mut app = app::App::new(db::Db::open(&path).unwrap());
     let mut term = Terminal::new(TestBackend::new(120, 40)).unwrap();
-    press(&mut app, KeyCode::Char('j')); // highlight Today
-    press(&mut app, KeyCode::Char('j')); // and then the first workspace
+    for _ in 0..3 {
+        press(&mut app, KeyCode::Char('j')); // past Today and Upcoming to the first workspace
+    }
     press(&mut app, KeyCode::Tab); // enter its todos (starts a new todo)
     press(&mut app, KeyCode::Esc); // and drop it again
     let rows = app.tree(app.focused_tree()).map_or(0, |t| t.rows.len());
@@ -156,8 +157,9 @@ fn scrolls_with_wrapped_rows() {
     let mut app = app::App::new(db::Db::open(&path).unwrap());
     app.show_completed = true;
     let mut term = Terminal::new(TestBackend::new(52, 12)).unwrap(); // narrow, so descriptions wrap
-    press(&mut app, KeyCode::Char('j'));
-    press(&mut app, KeyCode::Char('j'));
+    for _ in 0..3 {
+        press(&mut app, KeyCode::Char('j'));
+    }
     press(&mut app, KeyCode::Tab);
     press(&mut app, KeyCode::Esc);
 
