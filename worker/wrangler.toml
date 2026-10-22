@@ -1,0 +1,16 @@
+name = "fooit-sync"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# one Durable Object per log, keeping its base and batches in its own SQLite storage
+[[durable_objects.bindings]]
+name = "LOGS"
+class_name = "Log"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Log"]
+
+# The token that lets a machine start new logs. Set it with
+#   npx wrangler secret put OWNER_TOKEN
+# and, for `wrangler dev`, in a .dev.vars file as OWNER_TOKEN="..."
