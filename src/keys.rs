@@ -33,6 +33,7 @@ pub enum Action {
     ToggleComplete,
     Snooze,
     StartMove,
+    ToggleMark,
     Undo,
     Redo,
     ToggleShowCompleted,
@@ -77,6 +78,7 @@ impl Action {
         Action::ToggleComplete,
         Action::Snooze,
         Action::StartMove,
+        Action::ToggleMark,
         Action::Undo,
         Action::Redo,
         Action::ToggleShowCompleted,
@@ -113,7 +115,7 @@ impl Action {
             | ToggleExpand | ToggleExpandParent => 0,
             AddSibling | AddChild | EditDescription | EditBackspace | EditDue | EditRecurrence | ToggleComplete | Snooze | IncreaseUrgency
             | DecreaseUrgency => 1,
-            Indent | Dedent | ShiftDown | ShiftUp | StartMove | StartSort | CopyDescription | CopyModel | PasteBelow
+            Indent | Dedent | ShiftDown | ShiftUp | StartMove | ToggleMark | StartSort | CopyDescription | CopyModel | PasteBelow
             | PasteAbove => 2,
             RemoveNode | RemoveCompleted | Undo | Redo => 3,
             ToggleShowCompleted | StartSearch | FindEverywhere | ShowHelp | Quit => 4,
@@ -153,6 +155,7 @@ impl Action {
             Action::Snooze => "Push the due date a day later (3s: three days), from today when overdue",
             Action::Undo => "Undo the last change",
             Action::Redo => "Redo the last undone change",
+            Action::ToggleMark => "Mark or unmark the item, to complete, snooze, move or remove several at once",
             Action::StartMove => "Move the highlighted item with the arrows and tab, enter to finish",
             Action::ToggleShowCompleted => "Show or hide the completed todos",
             Action::RemoveCompleted => "Remove the completed todos of the workspace",
@@ -215,6 +218,7 @@ impl KeyManager {
             (&["c"], Action::ToggleComplete),
             (&["s"], Action::Snooze),
             (&["m"], Action::StartMove),
+            (&["v"], Action::ToggleMark),
             (&["u"], Action::Undo),
             (&["<ctrl+r>"], Action::Redo),
             (&["H"], Action::ToggleShowCompleted),

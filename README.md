@@ -61,6 +61,7 @@ completed and edited there; adding and arranging happens in their workspace.
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
 | `m` | move mode (see below) |
+| `v` | mark the item (and go to the next); `c`, `s`, `+`/`-`, `m` and `xx` then act on all marked; `escape` unmarks |
 | `>>`, `.` / `<<`, `,` | indent / dedent |
 | `xx` | remove (asks for confirmation; enter or `y` confirms) |
 | `y` / `Y` | copy description / copy item |

@@ -271,6 +271,7 @@ impl TreeState {
 
 pub enum ConfirmAction {
     Remove { tree: TreeRef, item: Item },
+    RemoveMarked { tree: TreeRef },
     RemoveCompleted { ws: i64 },
     Discard { tree: TreeRef },
 }
@@ -308,6 +309,8 @@ pub struct App {
     /// Items start expanded, so only the collapsed ones are tracked
     pub collapsed: HashSet<Item>,
     pub show_completed: bool,
+    /// Items marked to act on together
+    pub marked: HashSet<Item>,
     /// A count typed before an action, like the 3 in `3s`
     pub count: Option<u32>,
     /// Whether the search of every workspace is open, in place of the workspace's todos
@@ -341,6 +344,7 @@ impl App {
             mode: Mode::Normal,
             collapsed: HashSet::new(),
             show_completed: false,
+            marked: HashSet::new(),
             count: None,
             finding: false,
             drag: None,
@@ -645,6 +649,8 @@ impl App {
     }
 
     pub fn refresh_all(&mut self) {
+        let db = &self.db;
+        self.marked.retain(|item| db.exists(*item));
         self.rebuild(TreeRef::Workspaces);
         let existing: Vec<i64> = self.todo_trees.keys().copied().collect();
         for ws in existing {
@@ -912,6 +918,11 @@ impl App {
                 if !cancel {
                     match confirm.action {
                         ConfirmAction::Remove { tree, item } => self.remove(tree, item),
+                        ConfirmAction::RemoveMarked { tree } => {
+                            for item in std::mem::take(&mut self.marked) {
+                                self.remove(tree, item);
+                            }
+                        }
                         ConfirmAction::RemoveCompleted { ws } => self.remove_completed(ws),
                         ConfirmAction::Discard { tree } => {
                             self.stop_edit(tree, true);
@@ -935,6 +946,7 @@ impl App {
 
         let Some(field) = editing else {
             if key == "escape" {
+                self.marked.clear();
                 self.set_filter(tree, String::new());
                 if tree == FOUND {
                     self.close_find();

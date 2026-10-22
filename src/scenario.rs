@@ -1008,6 +1008,67 @@ fn backspace_starts_editing() {
 }
 
 #[test]
+fn marked_todos_are_acted_on_together() {
+    let mut app = temp_app("marks");
+    let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    press(&mut app, "aWork");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Other");
+    save_and_open(&mut app);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+    for d in ["a", "b", "c", "d"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+
+    // v marks and steps down; escape unmarks all
+    press(&mut app, "ggvjv");
+    assert_eq!(app.marked.len(), 2);
+    let s = screen(&mut term, &mut app, "marked");
+    assert!(s.contains("2 marked") && s.matches('●').count() == 2, "{s}");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.marked.is_empty());
+
+    // snooze and complete act on all marked
+    press(&mut app, "ggvvs");
+    assert!(app.marked.is_empty());
+    let dues = |app: &app::App| {
+        app.tree(app.focused_tree())
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| match r.item {
+                db::Item::Todo(id) => app.db.todo(id).unwrap().due.is_some(),
+                _ => false,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(dues(&app), [true, true, false, false]);
+
+    // moving one brings the rest along, here to another workspace
+    press(&mut app, "ggjvjv");
+    press(&mut app, "kkm");
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(descriptions(&app), ["b", "d"]);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["a", "c"]);
+
+    // and removing asks once for all of them
+    press(&mut app, "ggvvxx");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.tree(app.focused_tree()).unwrap().rows.len(), 0);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

@@ -22,6 +22,36 @@ impl App {
         }
     }
 
+    /// Put the other marked items of the same kind right after a moved one, in the order they
+    /// were shown; ones inside another marked item go along with it
+    fn bring_marked_along(&mut self, item: Item) -> Result<()> {
+        let marked = std::mem::take(&mut self.marked);
+        let Some(parent) = self.db.parent_of(item) else { return Ok(()) };
+        let inside_marked = |app: &App, mut i: Item| {
+            while let Some(p) = app.db.same_kind_parent(i) {
+                if p == item || marked.contains(&p) {
+                    return true;
+                }
+                i = p;
+            }
+            false
+        };
+        let mut others: Vec<Item> = marked
+            .iter()
+            .copied()
+            .filter(|m| *m != item && m.is_todo() == item.is_todo() && !inside_marked(self, *m))
+            .collect();
+        // in the order of their workspaces and lists
+        let order: Vec<Item> = self.todo_trees.values().flat_map(|t| t.rows.iter().map(|r| r.item)).collect();
+        others.sort_by_key(|m| order.iter().position(|o| o == m).unwrap_or(usize::MAX));
+        let mut after = item;
+        for other in others {
+            self.db.move_to(other, parent, Some(after))?;
+            after = other;
+        }
+        Ok(())
+    }
+
     pub(super) fn move_keypress(&mut self, key: &str) -> Result<()> {
         let Some(moving) = self.moving else {
             self.mode = Mode::Normal;
@@ -34,6 +64,7 @@ impl App {
                 self.moving = None;
                 self.mode = Mode::Normal;
                 self.focus = if item.is_todo() { Focus::Todos } else { Focus::Workspaces };
+                self.bring_marked_along(item)?;
             }
             "escape" => {
                 if self.db.exists(item) {

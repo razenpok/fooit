@@ -1,6 +1,6 @@
 //! Rendering, in the style of lazygit's default theme and layout
 
-use crate::app::{indent, is_draft, is_gathered, layout, row_cells, App, MARKER_WIDTH, FOUND, TODAY, TODAY_ROW, UPCOMING, UPCOMING_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, is_gathered, layout, row_cells, App, FOUND, TODAY, TODAY_ROW, UPCOMING, UPCOMING_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -425,12 +425,18 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
         _ => "▾",
     };
 
+    let marked = app.marked.contains(&row.item);
     let height = columns.iter().map(|c| c.len()).max().unwrap_or(1);
     (0..height)
         .map(|i| {
             let mut spans = vec![Span::raw(" ".repeat(indent(row.depth)))];
             let marker = if i == 0 { marker } else { "" };
-            spans.push(Span::styled(format!("{:<width$}", marker, width = MARKER_WIDTH), dim));
+            spans.push(Span::styled(format!("{:<1}", marker), dim));
+            // a marked item has a dot after its expand marker
+            spans.push(match () {
+                _ if marked && i == 0 => Span::styled("●", Style::new().fg(Color::Cyan)),
+                _ => Span::raw(" "),
+            });
             for (lines, (_, _, width)) in columns.iter().zip(&cells) {
                 let content = lines.get(i).cloned().unwrap_or_default();
                 let pad = width.saturating_sub(spans_width(&content));
@@ -688,6 +694,20 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             if let Some(preview) = quick_add_preview(app) {
                 line.spans.insert(0, Span::styled(format!("{}  ", preview), Style::new().fg(Color::Green)));
             }
+            line
+        }
+        Bar::Status if !app.marked.is_empty() => {
+            let mut line = action_options(
+                app,
+                &[
+                    ("Complete", Action::ToggleComplete),
+                    ("Snooze", Action::Snooze),
+                    ("Move", Action::StartMove),
+                    ("Remove", Action::RemoveNode),
+                ],
+            );
+            line.spans.insert(0, Span::styled(format!("{} marked: ", app.marked.len()), Style::new().fg(Color::Cyan)));
+            line.spans.push(Span::styled(" | Unmark all: esc", Style::new().fg(OPTIONS)));
             line
         }
         Bar::Status if app.focus == Focus::Todos => action_options(

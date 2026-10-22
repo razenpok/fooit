@@ -3,6 +3,18 @@
 use super::*;
 
 impl App {
+    /// The marked todos, or the highlighted one when none are marked
+    pub(super) fn marked_todos(&self, tree: TreeRef) -> Result<Vec<crate::db::Todo>> {
+        let items: Vec<Item> = if self.marked.is_empty() { vec![self.current_item(tree)?] } else { self.marked.iter().copied().collect() };
+        Ok(items
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Todo(id) => self.db.todo(id).cloned(),
+                Item::Ws(_) => None,
+            })
+            .collect())
+    }
+
     /// Whether the cursor is on the first row of a workspace's todos
     pub(super) fn at_top_of_todos(&self, tree: TreeRef) -> bool {
         tree.is_todos()
@@ -191,6 +203,23 @@ impl App {
                 self.db.dedent(item)?;
                 self.refresh_all();
             }
+            Action::RemoveNode if !self.marked.is_empty() => {
+                let count = self.marked.len();
+                if self.show_confirm {
+                    self.confirm(Confirm {
+                        action: ConfirmAction::RemoveMarked { tree },
+                        message: format!("Remove the {} marked items? [Y/n]", count),
+                        confirmed: Some(("The items were deleted".into(), Level::Error)),
+                        cancelled: Some(("The items were retained".into(), Level::Info)),
+                        cancel_mode: Mode::Normal,
+                        default_yes: true,
+                    });
+                } else {
+                    for item in std::mem::take(&mut self.marked) {
+                        self.remove(tree, item);
+                    }
+                }
+            }
             Action::RemoveNode => {
                 let item = self.current_item(tree)?;
                 if self.show_confirm {
@@ -225,24 +254,53 @@ impl App {
                 if !tree.is_todos() {
                     return Ok(());
                 }
-                let Item::Todo(id) = self.current_item(tree)? else { return Ok(()) };
-                let Some(mut todo) = self.db.todo(id).cloned() else { return Ok(()) };
-                match action {
-                    Action::ToggleComplete => todo.pending = !todo.pending,
-                    Action::IncreaseUrgency => todo.urgency += 1,
-                    _ => todo.urgency -= 1,
+                let todos = self.marked_todos(tree)?;
+                // marked ones all get done, or all reopened when they all were
+                let done = todos.iter().any(|t| t.pending);
+                for mut todo in todos {
+                    match action {
+                        Action::ToggleComplete => todo.pending = !done,
+                        Action::IncreaseUrgency => todo.urgency += 1,
+                        _ => todo.urgency -= 1,
+                    }
+                    self.db.update_todo(todo)?;
                 }
-                self.db.update_todo(todo)?;
+                if action == Action::ToggleComplete {
+                    self.marked.clear();
+                }
                 self.refresh_all();
             }
             Action::Snooze => {
-                let Item::Todo(id) = self.current_item(tree)? else { return Ok(()) };
-                let Some(mut todo) = self.db.todo(id).cloned() else { return Ok(()) };
-                let due = snoozed(todo.due, self.count.unwrap_or(1) as i64);
-                todo.due = Some(due);
-                self.db.update_todo(todo)?;
+                let todos = self.marked_todos(tree)?;
+                let count = todos.len();
+                let mut last = None;
+                for mut todo in todos {
+                    let due = snoozed(todo.due, self.count.unwrap_or(1) as i64);
+                    todo.due = Some(due);
+                    last = Some(due);
+                    self.db.update_todo(todo)?;
+                }
+                self.marked.clear();
                 self.refresh_all();
-                self.notify(format!("Snoozed to {}", crate::ui::due_text(due, dates::now())), Level::Info);
+                match last {
+                    Some(due) if count == 1 => {
+                        self.notify(format!("Snoozed to {}", crate::ui::due_text(due, dates::now())), Level::Info)
+                    }
+                    _ => self.notify(format!("Snoozed {} todos", count), Level::Info),
+                }
+            }
+            Action::ToggleMark => {
+                let item = self.current_item(tree)?;
+                if !self.marked.remove(&item) {
+                    self.marked.insert(item);
+                }
+                // on to the next row, to mark a run of them
+                let state = self.tree_mut(tree);
+                if state.highlighted.is_some_and(|h| h + 1 < state.rows.len()) {
+                    if let Some(next) = self.move_target(tree, true) {
+                        self.highlight_item(tree, next);
+                    }
+                }
             }
             Action::ToggleShowCompleted => {
                 self.show_completed = !self.show_completed;
