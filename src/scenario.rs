@@ -923,6 +923,34 @@ fn left_and_right_leave_an_empty_edit() {
 }
 
 #[test]
+fn snooze_pushes_the_due_date() {
+    let mut app = temp_app("snooze");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    press(&mut app, "report yesterday");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "no date");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    let due = |app: &app::App, i: usize| {
+        let db::Item::Todo(id) = app.tree(app.focused_tree()).unwrap().rows[i].item else { panic!() };
+        app.db.todo(id).unwrap().due.map(|d| (d.date() - dates::now().date()).num_days())
+    };
+
+    // without a date, or overdue, it counts from today
+    press(&mut app, "s");
+    assert_eq!(due(&app, 1), Some(1));
+    press(&mut app, "3s");
+    assert_eq!(due(&app, 1), Some(4));
+    press(&mut app, "ggs");
+    assert_eq!(due(&app, 0), Some(1));
+
+    // a count is only for the action right after it
+    press(&mut app, "2js");
+    assert_eq!(due(&app, 1), Some(5));
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

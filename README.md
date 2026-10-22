@@ -62,6 +62,7 @@ completed and edited there; adding and arranging happens in their workspace.
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |
+| `s`, `3s` | snooze: push the due date a day (or three) later, from today when overdue |
 | `H` | show / hide completed todos |
 | `X` | remove the workspace's completed todos (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |

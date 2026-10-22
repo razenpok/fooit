@@ -228,6 +228,16 @@ impl App {
                 self.db.update_todo(todo)?;
                 self.refresh_all();
             }
+            Action::Snooze => {
+                let Item::Todo(id) = self.current_item(tree)? else { return Ok(()) };
+                let Some(mut todo) = self.db.todo(id).cloned() else { return Ok(()) };
+                let days = self.count.unwrap_or(1) as i64;
+                todo.due = Some(snoozed(todo.due, days));
+                self.db.update_todo(todo)?;
+                self.refresh_all();
+                let plural = if days == 1 { "" } else { "s" };
+                self.notify(format!("Snoozed by {} day{}", days, plural), Level::Info);
+            }
             Action::ToggleShowCompleted => {
                 self.show_completed = !self.show_completed;
                 self.refresh_all();
@@ -286,4 +296,16 @@ impl App {
         }
         Ok(())
     }
+}
+
+/// A due date pushed some days later, keeping its time of day. One that has passed, or none,
+/// is pushed from today, so a snoozed todo is never left overdue
+fn snoozed(due: Option<chrono::NaiveDateTime>, days: i64) -> chrono::NaiveDateTime {
+    let now = dates::now();
+    let base = match due {
+        Some(due) if due.date() >= now.date() => due,
+        Some(due) => now.date().and_time(due.time()),
+        None => now.date().and_hms_opt(0, 0, 0).unwrap(),
+    };
+    base + chrono::Duration::days(days)
 }

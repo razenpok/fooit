@@ -30,6 +30,7 @@ pub enum Action {
     PasteBelow,
     PasteAbove,
     ToggleComplete,
+    Snooze,
     StartMove,
     Undo,
     Redo,
@@ -72,6 +73,7 @@ impl Action {
         Action::PasteBelow,
         Action::PasteAbove,
         Action::ToggleComplete,
+        Action::Snooze,
         Action::StartMove,
         Action::Undo,
         Action::Redo,
@@ -107,7 +109,7 @@ impl Action {
         Self::SECTIONS[match self {
             SwitchFocus | MoveDown | MoveUp | NextSibling | PreviousSibling | IntoChildren | ToParent | GoToTop | GoToBottom
             | ToggleExpand | ToggleExpandParent => 0,
-            AddSibling | AddChild | EditDescription | EditDue | EditRecurrence | ToggleComplete | IncreaseUrgency
+            AddSibling | AddChild | EditDescription | EditDue | EditRecurrence | ToggleComplete | Snooze | IncreaseUrgency
             | DecreaseUrgency => 1,
             Indent | Dedent | ShiftDown | ShiftUp | StartMove | StartSort | CopyDescription | CopyModel | PasteBelow
             | PasteAbove => 2,
@@ -145,6 +147,7 @@ impl Action {
             Action::PasteBelow => "Paste the copied node in the list (puts below the highlighted)",
             Action::PasteAbove => "Paste the copied node in the list (puts above the highlighted)",
             Action::ToggleComplete => "Toggle the completion of the todo",
+            Action::Snooze => "Push the due date a day later (3s: three days), from today when overdue",
             Action::Undo => "Undo the last change",
             Action::Redo => "Redo the last undone change",
             Action::StartMove => "Move the highlighted item with the arrows and tab, enter to finish",
@@ -206,6 +209,7 @@ impl KeyManager {
             (&["p"], Action::PasteBelow),
             (&["P"], Action::PasteAbove),
             (&["c"], Action::ToggleComplete),
+            (&["s"], Action::Snooze),
             (&["m"], Action::StartMove),
             (&["u"], Action::Undo),
             (&["<ctrl+r>"], Action::Redo),
@@ -301,6 +305,15 @@ impl KeyManager {
 
     pub fn clear(&mut self) {
         self.inputs.clear();
+    }
+
+    /// Whether part of a binding of several keys has been typed
+    pub fn pending(&self) -> bool {
+        !self.inputs.is_empty()
+    }
+
+    pub fn is_bound(&self, key: &str) -> bool {
+        self.bindings.iter().any(|(k, _)| k == key)
     }
 
     /// Bindings only exist for NORMAL mode, so any other mode never matches

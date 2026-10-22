@@ -295,6 +295,8 @@ pub struct App {
     /// Items start expanded, so only the collapsed ones are tracked
     pub collapsed: HashSet<Item>,
     pub show_completed: bool,
+    /// A count typed before an action, like the 3 in `3s`
+    pub count: Option<u32>,
     /// Whether the search of every workspace is open, in place of the workspace's todos
     pub finding: bool,
     pub drag: Option<Drag>,
@@ -326,6 +328,7 @@ impl App {
             mode: Mode::Normal,
             collapsed: HashSet::new(),
             show_completed: false,
+            count: None,
             finding: false,
             drag: None,
             moving: None,
@@ -789,13 +792,25 @@ impl App {
             return;
         }
 
+        // digits before an action count it, unless they are bound themselves
+        let digit = key.len() == 1 && key.chars().all(|c| c.is_ascii_digit()) && (key != "0" || self.count.is_some());
+        if self.mode == Mode::Normal && digit && !self.keys.pending() && !self.keys.is_bound(&key) {
+            let count = self.count.unwrap_or(0).saturating_mul(10).saturating_add(key.parse::<u32>().unwrap());
+            self.count = Some(count.min(9999));
+            return;
+        }
+
         match self.keys.register(&key, self.mode == Mode::Normal) {
-            KeyMatch::NoMatch => self.tree_keypress(&key),
+            KeyMatch::NoMatch => {
+                self.count = None;
+                self.tree_keypress(&key);
+            }
             KeyMatch::Multiple => {}
             KeyMatch::Found(action) => {
                 if let Err(e) = self.run(action) {
                     self.notify(e, Level::Error);
                 }
+                self.count = None;
             }
         }
     }
