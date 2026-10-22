@@ -158,14 +158,23 @@ fooit share import 'https://fooit-sync.you.workers.dev/#…' --name from-me
 brings in every workspace in the share, and any added to it later. Anyone with a link
 can read and change its workspaces, so give it out like a password.
 
+To move a share to your own other machine without copying the link, make a pairing
+code; it works once, for ten minutes:
+
+```
+fooit share pair me                   # prints a code like k7fq-m2xa-9p4d
+fooit share import k7fq-m2xa-9p4d     # on the other machine (add --server URL if it has no config)
+```
+
 | command | |
 | --- | --- |
 | `fooit share new NAME WORKSPACE...` | make a share and print its link |
 | `fooit share add SHARE WORKSPACE...` | put workspaces in a share |
 | `fooit share remove SHARE WORKSPACE...` | take them out: the share's people keep what they have, but get nothing new |
 | `fooit share link SHARE` | print a share's link again |
+| `fooit share pair SHARE` | a code for another machine to import the share with, once, within ten minutes |
 | `fooit share list` | the shares here and their workspaces |
-| `fooit share import LINK [--name NAME]` | add a share from its link |
+| `fooit share import LINK-OR-CODE [--name NAME] [--server URL]` | add a share from its link or a pairing code |
 | `fooit share leave SHARE` | forget a share here; its workspaces stay, and stop syncing unless another share has them |
 | `fooit share rename SHARE NAME` | rename a share, here only |
 | `fooit sync` | sync now |

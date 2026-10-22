@@ -41,3 +41,11 @@ npx wrangler dev
 
 All but the first need `X-Fooit-Auth`, whose SHA-256 must match the `auth` the log
 was started with.
+
+Pairing codes live in one more Durable Object, which also counts wrong guesses (30 a
+minute, after which lookups wait):
+
+| request | |
+| --- | --- |
+| `POST /v1/pair` | `{"id", "data"}`: keep sealed data under a code's id for ten minutes |
+| `GET /v1/pair/:id` | the data, which is then gone |

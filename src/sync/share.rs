@@ -241,6 +241,25 @@ pub fn forget(conn: &Connection, share: &Share) -> Result<()> {
     Ok(())
 }
 
+/// Leave a share's link on the server under a new pairing code, for another machine to
+/// take with `import_code` within ten minutes
+pub fn pair(remote: &dyn super::remote::Remote, share: &Share) -> Result<String> {
+    let code = super::crypto::new_code();
+    let payload = json!({"link": super::crypto::link(&share.endpoint, &share.secret), "name": share.name});
+    let key = Secret::from_code(&code)?;
+    remote.pair_put(&key, &key.seal("pair", &serde_json::to_vec(&payload).unwrap()))?;
+    Ok(code)
+}
+
+/// The link and name of the share a pairing code stands for. A code works once
+pub fn take_code(remote: &dyn super::remote::Remote, code: &str) -> Result<(String, String)> {
+    let key = Secret::from_code(code)?;
+    let sealed = remote.pair_take(&key)?.ok_or("No such code; it may have been used, or be over ten minutes old")?;
+    let payload: Value = serde_json::from_slice(&key.open("pair", &sealed)?).map_err(|e| e.to_string())?;
+    let field = |name: &str| payload[name].as_str().map(str::to_string).ok_or("Damaged pairing data".to_string());
+    Ok((field("link")?, field("name")?))
+}
+
 pub fn rename(conn: &Connection, share: &Share, name: &str) -> Result<()> {
     conn.execute("UPDATE share SET name = ?1 WHERE id = ?2", params![name, share.id]).map_err(err)?;
     Ok(())

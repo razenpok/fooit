@@ -7,9 +7,18 @@ compatibility_date = "2025-09-01"
 name = "LOGS"
 class_name = "Log"
 
+# one more for pairing codes, which hand a share link to another machine
+[[durable_objects.bindings]]
+name = "PAIRING"
+class_name = "Pairing"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Log"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Pairing"]
 
 # The token that lets a machine start new logs. Set it with
 #   npx wrangler secret put OWNER_TOKEN

@@ -93,6 +93,12 @@ impl Remote for Shared<'_> {
     fn compact(&self, s: &crypto::Secret, seq: u64, data: &[u8]) -> Result<bool> {
         self.0.compact(s, seq, data)
     }
+    fn pair_put(&self, code: &crypto::Secret, data: &[u8]) -> Result<()> {
+        self.0.pair_put(code, data)
+    }
+    fn pair_take(&self, code: &crypto::Secret) -> Result<Option<Vec<u8>>> {
+        self.0.pair_take(code)
+    }
 }
 
 fn three_workspaces(me: &mut Machine) {
@@ -144,6 +150,26 @@ fn shares_bring_in_their_workspaces() {
     // nothing to do the second time round
     let report = art.sync(&server);
     assert!(!report.pulled && !report.pushed);
+}
+
+#[test]
+fn pairing_codes_hand_over_a_share_once() {
+    let server = Memory::default();
+    let mut me = Machine::new("pair-me");
+    three_workspaces(&mut me);
+    me.share(&server, "mine", &["general", "art"]);
+    let s = share::find(&me.conn, "mine").unwrap();
+    let code = share::pair(&Shared(&server), &s).unwrap();
+
+    let mut laptop = Machine::new("pair-laptop");
+    let (link, name) = share::take_code(&Shared(&server), &code.to_uppercase()).unwrap();
+    assert_eq!(name, "mine");
+    share::import(&laptop.conn, &link, Some(&name)).unwrap();
+    laptop.sync(&server);
+    assert_eq!(laptop.workspaces(), ["art", "general"]);
+
+    assert!(share::take_code(&Shared(&server), &code).is_err());
+    assert!(share::take_code(&Shared(&server), &crypto::new_code()).is_err());
 }
 
 #[test]
@@ -311,6 +337,12 @@ fn worker_round_trip() {
     assert!(matches!(guest.push(&secret, 0, b"x").unwrap(), remote::Push::Behind));
     assert!(guest.create(&crypto::Secret::new(), b"x").is_err());
     assert!(guest.pull(&crypto::Secret::new(), None).unwrap().is_none());
+
+    // pairing codes, once each
+    let code = share::pair(&guest, &share).unwrap();
+    let (link, name) = share::take_code(&guest, &code).unwrap();
+    assert_eq!((link, name), (crypto::link(&url, &share.secret), "all".to_string()));
+    assert!(share::take_code(&guest, &code).is_err());
 
     assert!(sync_all(&mut me.conn, &|_| Box::new(remote::Http::new(&url, None)) as Box<dyn Remote>).pulled);
     me.db.load().unwrap();

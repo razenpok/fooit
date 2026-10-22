@@ -10,10 +10,19 @@
 //   POST /v1/logs/:id/base       {"seq": n, "data": base64}, replacing batches up to n
 //
 // All but the first need X-Fooit-Auth: the log's token.
+//
+// Pairing codes hand a share link to another machine through a short code:
+//
+//   POST /v1/pair                {"id": hash of the code, "data": base64}, kept 10 minutes
+//   GET  /v1/pair/:id            the data, once
 
 import { DurableObject } from "cloudflare:workers";
 
 const MAX_DATA = 8 * 1024 * 1024; // base64 characters in one request
+const PAIR_TTL = 10 * 60 * 1000;
+const PAIR_MAX_DATA = 4096;
+const PAIR_MAX_PENDING = 1000;
+const PAIR_MAX_MISSES = 30; // lookups of codes that are not there, per minute
 const CHUNK = 1024 * 1024; // a row of Durable Object storage holds at most 2 MB
 
 function json(body, status = 200) {
@@ -59,6 +68,10 @@ export default {
         "This is a fooit sync server.\nTo add a share from a link to it, run: fooit share import '<link>'\n",
         { headers: { "content-type": "text/plain; charset=utf-8" } },
       );
+    }
+    if (/^\/v1\/pair(\/[0-9a-f]{32})?$/.test(url.pathname)) {
+      // all codes live in one object, so it can count wrong guesses
+      return env.PAIRING.get(env.PAIRING.idFromName("pairing")).fetch(request);
     }
     const match = url.pathname.match(/^\/v1\/logs\/([0-9a-f]{32})(\/batches|\/base)?$/);
     if (!match) return error(404, "not found");
@@ -178,6 +191,55 @@ export class Log extends DurableObject {
         this.sql.exec("DELETE FROM batches WHERE seq <= ?", b.seq);
       });
       return json({ base_seq: b.seq });
+    }
+
+    return error(405, "method not allowed");
+  }
+}
+
+export class Pairing extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS codes (id TEXT PRIMARY KEY, data TEXT NOT NULL, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS misses (minute INTEGER PRIMARY KEY, count INTEGER NOT NULL);
+    `);
+  }
+
+  async fetch(request) {
+    const now = Date.now();
+    this.sql.exec("DELETE FROM codes WHERE expires < ?", now);
+    this.sql.exec("DELETE FROM misses WHERE minute < ?", Math.floor(now / 60000) - 1);
+    const url = new URL(request.url);
+    const id = url.pathname.split("/")[3];
+
+    if (!id && request.method === "POST") {
+      const b = await body(request);
+      if (!b || !/^[0-9a-f]{32}$/.test(b.id) || !isData(b.data) || b.data.length > PAIR_MAX_DATA) {
+        return error(400, "bad request");
+      }
+      const pending = this.sql.exec("SELECT count(*) AS n FROM codes").toArray()[0].n;
+      if (pending >= PAIR_MAX_PENDING) return error(429, "too many codes");
+      if (this.sql.exec("SELECT 1 FROM codes WHERE id = ?", b.id).toArray().length) return error(409, "code taken");
+      this.sql.exec("INSERT INTO codes (id, data, expires) VALUES (?, ?, ?)", b.id, b.data, now + PAIR_TTL);
+      return json({ expires: now + PAIR_TTL }, 201);
+    }
+
+    if (id && request.method === "GET") {
+      const minute = Math.floor(now / 60000);
+      const misses = this.sql.exec("SELECT count FROM misses WHERE minute = ?", minute).toArray()[0];
+      if (misses && misses.count >= PAIR_MAX_MISSES) return error(429, "too many tries, wait a minute");
+      const row = this.sql.exec("SELECT data FROM codes WHERE id = ?", id).toArray()[0];
+      if (!row) {
+        this.sql.exec(
+          "INSERT INTO misses (minute, count) VALUES (?, 1) ON CONFLICT (minute) DO UPDATE SET count = count + 1",
+          minute,
+        );
+        return error(404, "no such code");
+      }
+      this.sql.exec("DELETE FROM codes WHERE id = ?", id);
+      return json({ data: row.data });
     }
 
     return error(405, "method not allowed");

@@ -82,14 +82,20 @@ enum ShareCommand {
     },
     /// Print the link of a share, to give to the people (or machines) it is for.
     Link { share: String },
+    /// Give a share to another machine with a short code that works once, for ten minutes.
+    Pair { share: String },
     /// List the shares here, with their workspaces.
     List,
-    /// Add a share from its link; its workspaces come in with it.
+    /// Add a share from its link or a pairing code; its workspaces come in with it.
     Import {
+        /// The share's link, or a pairing code from `fooit share pair`
         link: String,
         /// What to call the share here
         #[arg(long)]
         name: Option<String>,
+        /// The sync server a pairing code is on, when it is not the configured one
+        #[arg(long)]
+        server: Option<String>,
     },
     /// Forget a share here. Workspaces that no other share holds stop syncing and stay.
     Leave { share: String },
@@ -351,8 +357,27 @@ fn run_sync_command(command: &Command, cli_db: Option<&str>) -> Result<(), Strin
                 println!("{}: {}", share.name, names(&conn, &members).join(", "));
             }
         }
-        ShareCommand::Import { link, name } => {
-            let share = sync::share::import(&conn, link, name.as_deref())?;
+        ShareCommand::Pair { share } => {
+            let share = sync::share::find(&conn, share)?;
+            let code = sync::share::pair(config.remote(&share.endpoint).as_ref(), &share)?;
+            println!("On the other machine, within ten minutes:\n");
+            println!("  fooit share import {code}\n");
+            if config.url.as_deref() != Some(share.endpoint.as_str()) {
+                println!("adding --server {} if that machine is not set up for it.", share.endpoint);
+            }
+        }
+        ShareCommand::Import { link, name, server } => {
+            let (link, name) = if sync::crypto::normalize_code(link).is_some() {
+                let endpoint = match server {
+                    Some(s) => s.trim_end_matches('/').to_string(),
+                    None => config.require_url().map_err(|e| format!("{e}, or pass --server"))?.to_string(),
+                };
+                let (link, shared_name) = sync::share::take_code(config.remote(&endpoint).as_ref(), link)?;
+                (link, Some(name.clone().unwrap_or(shared_name)))
+            } else {
+                (link.clone(), name.clone())
+            };
+            let share = sync::share::import(&conn, &link, name.as_deref())?;
             if let Err(e) = sync_now(&mut conn) {
                 sync::share::forget(&conn, &share)?;
                 return Err(e);

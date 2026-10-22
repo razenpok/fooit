@@ -48,6 +48,10 @@ pub trait Remote: Send + Sync {
     fn push(&self, secret: &Secret, expected: u64, data: &[u8]) -> Result<Push>;
     /// Replace the base with the state at `seq`, dropping the batches it holds
     fn compact(&self, secret: &Secret, seq: u64, data: &[u8]) -> Result<bool>;
+    /// Leave sealed data under a pairing code for ten minutes
+    fn pair_put(&self, code: &Secret, data: &[u8]) -> Result<()>;
+    /// Take what was left under a pairing code, which is then gone
+    fn pair_take(&self, code: &Secret) -> Result<Option<Vec<u8>>>;
 }
 
 mod b64 {
@@ -157,6 +161,28 @@ impl Remote for Http {
             Err(e) => Err(http_error(e)),
         }
     }
+
+    fn pair_put(&self, code: &Secret, data: &[u8]) -> Result<()> {
+        let body = serde_json::json!({"id": code.log_id(), "data": B64.encode(data)});
+        match self.agent.post(&format!("{}/v1/pair", self.endpoint)).send_json(body) {
+            Ok(_) => Ok(()),
+            Err(ureq::Error::Status(409, _)) => Err("That code is taken; try again".into()),
+            Err(e) => Err(http_error(e)),
+        }
+    }
+
+    fn pair_take(&self, code: &Secret) -> Result<Option<Vec<u8>>> {
+        match self.agent.get(&format!("{}/v1/pair/{}", self.endpoint, code.log_id())).call() {
+            Ok(r) => {
+                let v: serde_json::Value = r.into_json().map_err(|e| e.to_string())?;
+                let data = v["data"].as_str().ok_or("Unexpected answer from the sync server")?;
+                B64.decode(data).map(Some).map_err(|e| e.to_string())
+            }
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(ureq::Error::Status(429, _)) => Err("Too many wrong codes were tried; wait a minute".into()),
+            Err(e) => Err(http_error(e)),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +214,7 @@ mod memory {
     #[derive(Default)]
     pub struct Memory {
         logs: Mutex<HashMap<String, MemoryLog>>,
+        codes: Mutex<HashMap<String, Vec<u8>>>,
         /// Added to the clock, to test what happens to old batches
         pub clock_offset_ms: Mutex<u64>,
     }
@@ -263,6 +290,19 @@ mod memory {
                 true
             })?
             .ok_or_else(|| "No such log on the sync server".to_string())
+        }
+
+        fn pair_put(&self, code: &Secret, data: &[u8]) -> Result<()> {
+            let mut codes = self.codes.lock().unwrap();
+            if codes.contains_key(&code.log_id()) {
+                return Err("That code is taken; try again".into());
+            }
+            codes.insert(code.log_id(), data.to_vec());
+            Ok(())
+        }
+
+        fn pair_take(&self, code: &Secret) -> Result<Option<Vec<u8>>> {
+            Ok(self.codes.lock().unwrap().remove(&code.log_id()))
         }
     }
 }

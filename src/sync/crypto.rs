@@ -107,6 +107,33 @@ pub fn parse_link(link: &str) -> Result<(String, Secret)> {
     Ok((endpoint.to_string(), Secret::decode(secret)?))
 }
 
+/// Letters and digits that are hard to mix up when read out or typed
+const CODE_CHARS: &[u8] = b"23456789abcdefghjkmnpqrstuvwxyz";
+
+/// A pairing code, like `k7fq-m2xa-9p4d`: about 59 bits, enough for the ten minutes it lasts
+pub fn new_code() -> String {
+    let bytes: [u8; 12] = random();
+    let chars: Vec<char> = bytes.iter().map(|b| CODE_CHARS[*b as usize % CODE_CHARS.len()] as char).collect();
+    chars.chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
+/// A code as typed, without dashes, spaces or capitals, or None when it is not one
+pub fn normalize_code(code: &str) -> Option<String> {
+    let plain: String = code.chars().filter(|c| !matches!(c, '-' | ' ')).flat_map(char::to_lowercase).collect();
+    (plain.len() == 12 && plain.bytes().all(|b| CODE_CHARS.contains(&b))).then_some(plain)
+}
+
+impl Secret {
+    /// The secret a pairing code stands for: its log id names the code on the server, and
+    /// its key seals what the code hands over
+    pub fn from_code(code: &str) -> Result<Secret> {
+        let plain = normalize_code(code).ok_or("A pairing code looks like k7fq-m2xa-9p4d")?;
+        let mut out = [0u8; 32];
+        Hkdf::<Sha256>::new(Some(b"fooit pairing code"), plain.as_bytes()).expand(b"secret", &mut out).unwrap();
+        Ok(Secret(out))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +147,17 @@ mod tests {
         assert!(Secret::new().open("batch", &sealed).is_err());
         assert_ne!(s.log_id(), Secret::new().log_id());
         assert_eq!(Secret::decode(&s.encode()).unwrap(), s);
+    }
+
+    #[test]
+    fn codes() {
+        let code = new_code();
+        assert_eq!(code.len(), 14);
+        let typed = code.to_uppercase().replace('-', " ");
+        assert_eq!(Secret::from_code(&typed).unwrap(), Secret::from_code(&code).unwrap());
+        assert_ne!(Secret::from_code(&new_code()).unwrap(), Secret::from_code(&code).unwrap());
+        assert!(Secret::from_code("not-a-code").is_err());
+        assert!(normalize_code("https://x/#abc").is_none());
     }
 
     #[test]
