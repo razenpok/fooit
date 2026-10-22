@@ -637,8 +637,9 @@ fn undo_and_redo() {
     }
     key(&mut app, KeyCode::Esc);
 
-    // removing, then undoing it, brings the todo back
-    press(&mut app, "xxy");
+    // removing, then undoing it, brings the todo back; enter answers yes
+    press(&mut app, "xx");
+    key(&mut app, KeyCode::Enter);
     assert_eq!(descriptions(&app), ["one", "two"]);
     press(&mut app, "u");
     assert_eq!(descriptions(&app), ["one", "two", "three"]);
@@ -849,7 +850,7 @@ fn walkthrough() {
     key(&mut app, KeyCode::Tab);
     press(&mut app, "xx");
     let s = screen(&mut term, &mut app, "delete confirm");
-    assert!(s.contains("Are you sure? [y/N]"));
+    assert!(s.contains("Are you sure? [Y/n]"));
     press(&mut app, "y");
     let s = screen(&mut term, &mut app, "deleted");
     assert!(!s.contains("Scenario"));

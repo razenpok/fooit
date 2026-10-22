@@ -250,6 +250,8 @@ pub struct Confirm {
     pub confirmed: Option<(String, Level)>,
     pub cancelled: Option<(String, Level)>,
     pub cancel_mode: Mode,
+    /// Whether enter answers yes rather than no
+    pub default_yes: bool,
 }
 
 pub enum Bar {
@@ -1034,7 +1036,7 @@ impl App {
                 }
             },
             Bar::Confirm(confirm) => {
-                let cancel = key.to_lowercase() != "y";
+                let cancel = !(key.to_lowercase() == "y" || (confirm.default_yes && key == "enter"));
                 if !cancel {
                     match confirm.action {
                         ConfirmAction::Remove { tree, item } => self.remove(tree, item),
@@ -1245,6 +1247,7 @@ impl App {
             confirmed: Some(("The changes were discarded".into(), Level::Info)),
             cancelled: None,
             cancel_mode: Mode::Insert,
+            default_yes: false,
         });
     }
 
@@ -1666,10 +1669,11 @@ impl App {
                 if self.show_confirm {
                     self.confirm(Confirm {
                         action: ConfirmAction::Remove { tree, item },
-                        message: "Are you sure? [y/N]".into(),
+                        message: "Are you sure? [Y/n]".into(),
                         confirmed: Some(("The items were deleted".into(), Level::Error)),
                         cancelled: Some(("The items were retained".into(), Level::Info)),
                         cancel_mode: Mode::Normal,
+                        default_yes: true,
                     });
                 } else {
                     self.remove(tree, item);
@@ -1726,6 +1730,7 @@ impl App {
                         confirmed: Some(("The completed todos were deleted".into(), Level::Error)),
                         cancelled: Some(("The completed todos were retained".into(), Level::Info)),
                         cancel_mode: Mode::Normal,
+                        default_yes: false,
                     });
                 } else {
                     self.remove_completed(ws);

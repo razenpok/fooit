@@ -50,7 +50,7 @@ drops it.
 | `J` / `K` | shift down / up |
 | `m` | move mode (see below) |
 | `>>`, `.` / `<<`, `,` | indent / dedent |
-| `xx` | remove (asks for confirmation) |
+| `xx` | remove (asks for confirmation; enter or `y` confirms) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
 | `c` | toggle complete |

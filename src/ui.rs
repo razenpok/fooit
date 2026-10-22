@@ -615,7 +615,8 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             }
             Line::from(spans)
         }
-        Bar::Confirm(_) => options(&[("Confirm", "y"), ("Cancel", "n")]),
+        Bar::Confirm(confirm) if confirm.default_yes => options(&[("Confirm", "y/enter"), ("Cancel", "n/esc")]),
+        Bar::Confirm(_) => options(&[("Confirm", "y"), ("Cancel", "n/enter")]),
     };
     buf.set_line(area.x, area.y, &line, area.width);
 
