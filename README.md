@@ -82,7 +82,8 @@ Completed todos are hidden, once the cursor has left them and their children.
 - Click a todo's description, due date or urgency to edit it, with the cursor where
   you clicked. Click a workspace to select it.
 - Drag a row to move it along with its children. Moving sideways while dragging
-  nests it deeper or shallower, as far as the rows around it allow.
+  nests it deeper or shallower, as far as the rows around it allow. Holding it at the
+  top or bottom edge of the list scrolls the list.
 - Drop a todo on another workspace to move it to the bottom of that workspace.
 - The wheel moves the cursor.
 

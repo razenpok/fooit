@@ -183,7 +183,9 @@ fn run(mut app: app::App) -> std::io::Result<()> {
                 return Ok(());
             }
 
-            match wait_for_input(tty, Duration::from_millis(200)) {
+            // check more often while dragging, so the list scrolls smoothly at its edges
+            let wait = if app.drag.is_some() { 30 } else { 200 };
+            match wait_for_input(tty, Duration::from_millis(wait)) {
                 Input::Gone => return Ok(()),
                 Input::None => {}
                 Input::Ready => {

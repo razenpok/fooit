@@ -132,6 +132,9 @@ pub struct Drag {
     pub onto: Option<Item>,
     /// Whether the mouse moved since it was pressed, otherwise it is a click
     pub moved: bool,
+    /// Where the mouse is now, and when the list last scrolled for being at its edge
+    pub at: (u16, u16),
+    pub scrolled: Instant,
 }
 
 /// Where a dragged row lands: after the row `above` (or first when None), at a depth
@@ -549,7 +552,16 @@ impl App {
 
     /// Expires notifications and picks up outside changes; returns whether anything visible changed
     pub fn tick(&mut self) -> bool {
-        let mut changed = false;
+        let mut changed = self.scroll_drag();
+        // the drop target follows the rows that scrolled under the mouse
+        if changed {
+            if let Some(drag) = &self.drag {
+                let target = self.drop_target(drag, drag.at.0, drag.at.1);
+                if let Some(drag) = self.drag.as_mut() {
+                    drag.target = target;
+                }
+            }
+        }
         if let Bar::Notification { until, .. } = &self.bar {
             if Instant::now() >= *until {
                 self.bar = Bar::Status;
@@ -729,7 +741,16 @@ impl App {
             return Ok(());
         }
 
-        self.drag = Some(Drag { tree, item, start: (x, y), target: None, onto: None, moved: false });
+        self.drag = Some(Drag {
+            tree,
+            item,
+            start: (x, y),
+            target: None,
+            onto: None,
+            moved: false,
+            at: (x, y),
+            scrolled: Instant::now(),
+        });
         Ok(())
     }
 
@@ -778,7 +799,37 @@ impl App {
             drag.target = target;
             drag.onto = onto;
             drag.moved = true;
+            drag.at = (x, y);
         }
+    }
+
+    /// Scroll the list a dragged row is in while the mouse is at its top or bottom edge;
+    /// returns whether it scrolled
+    fn scroll_drag(&mut self) -> bool {
+        let Some(drag) = self.drag.as_ref().filter(|d| d.moved && d.onto.is_none()) else { return false };
+        if drag.scrolled.elapsed() < Duration::from_millis(60) {
+            return false;
+        }
+        let (tree, (x, y)) = (drag.tree, drag.at);
+        let Some(state) = self.tree(tree) else { return false };
+        let area = state.view.area;
+        if !(area.x..area.right()).contains(&x) {
+            return false;
+        }
+        let last = state.rows.len().saturating_sub(1);
+        let offset = match () {
+            _ if y <= area.y => state.offset.saturating_sub(1),
+            _ if y + 1 >= area.bottom() => (state.offset + 1).min(last),
+            _ => return false,
+        };
+        if offset == state.offset {
+            return false;
+        }
+        self.tree_mut(tree).offset = offset;
+        if let Some(drag) = self.drag.as_mut() {
+            drag.scrolled = Instant::now();
+        }
+        true
     }
 
     fn mouse_up(&mut self) -> Result<()> {

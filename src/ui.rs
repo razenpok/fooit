@@ -459,7 +459,9 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
     let state = app.tree(tree).unwrap();
     let highlighted = state.highlighted;
     let mut offset = state.offset.min(rows.len().saturating_sub(1));
-    if let Some(h) = highlighted {
+    // while dragging the list scrolls on its own, away from the dragged row
+    let dragging = app.drag.as_ref().is_some_and(|d| d.tree == tree && d.moved);
+    if let Some(h) = highlighted.filter(|_| !dragging) {
         if h < offset {
             offset = h;
         }

@@ -663,6 +663,43 @@ fn undo_and_redo() {
 }
 
 #[test]
+fn dragging_at_the_edge_scrolls() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    let mut app = temp_app("drag-scroll");
+    let mut term = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for i in 0..30 {
+        press(&mut app, &format!("todo {i}"));
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "gg");
+    screen(&mut term, &mut app, "top");
+
+    let area = app.tree(app.focused_tree()).unwrap().view.area;
+    let (x, top, bottom) = (area.x + 6, area.y, area.bottom() - 1);
+    let mouse = |app: &mut app::App, kind, y| {
+        app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+    };
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), top);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), bottom);
+    for _ in 0..12 {
+        screen(&mut term, &mut app, "dragging");
+        std::thread::sleep(std::time::Duration::from_millis(70));
+        app.tick();
+    }
+    let s = screen(&mut term, &mut app, "scrolled");
+    assert!(!s.contains("todo 1 ") && s.contains("todo 20"), "{s}");
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), bottom);
+
+    let rows = descriptions(&app);
+    let at = rows.iter().position(|d| d == "todo 0").unwrap();
+    assert!(at > 15, "{rows:?}");
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));
