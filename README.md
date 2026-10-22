@@ -42,6 +42,7 @@ drops it.
 | `a`, `enter` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
+| `m` | move mode (see below) |
 | `>>` / `<<` | indent / dedent |
 | `xx` | remove (asks for confirmation) |
 | `y` / `Y` | copy description / copy item |
@@ -59,6 +60,11 @@ While editing, `enter` saves (and on a description, starts a new sibling) and
 `escape` discards, asking first if something changed. The up and down arrows save the
 edit and then move the cursor. `tab` / `shift+tab` nest the item under the one above
 it / move it out of its parent while you keep typing, also for a new item.
+
+In move mode (`m`) up and down move the item among its siblings and right and left
+nest it or move it out. For a todo, `tab` goes to the workspace list, where up and down
+move it to the bottom of the highlighted workspace, and `tab` goes back. `enter` keeps
+it where it is and `escape` puts it back where it was.
 
 Completed todos are hidden, once the cursor has left them and their children.
 

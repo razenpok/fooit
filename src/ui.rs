@@ -499,7 +499,8 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
             style = style.fg(DIM);
         }
         // the selected line reads in any theme: reversed, in plain colors
-        let selected = (highlighted == Some(index) && focused) || onto == Some(row.item);
+        let moving = app.moving.is_some_and(|m| m.item == row.item);
+        let selected = (highlighted == Some(index) && focused) || onto == Some(row.item) || moving;
         if selected {
             style = Style::new().add_modifier(Modifier::REVERSED);
         } else if highlighted == Some(index) {
@@ -560,6 +561,19 @@ fn options(pairs: &[(&str, &str)]) -> Line<'static> {
 fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
     let line = match &app.bar {
         _ if app.help.is_some() => options(&[("Close", "esc"), ("Scroll", "j/k")]),
+        Bar::Status if app.mode == Mode::Move && app.focus == Focus::Workspaces => options(&[
+            ("Move to workspace", "up/down"),
+            ("Back to todos", "tab"),
+            ("Done", "enter"),
+            ("Put back", "esc"),
+        ]),
+        Bar::Status if app.mode == Mode::Move => options(&[
+            ("Move", "up/down"),
+            ("Indent", "right/left"),
+            ("Workspace", "tab"),
+            ("Done", "enter"),
+            ("Put back", "esc"),
+        ]),
         Bar::Status if app.mode == Mode::Insert => {
             options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")])
         }

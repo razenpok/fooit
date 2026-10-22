@@ -20,6 +20,7 @@ pub enum Mode {
     Search,
     Sort,
     Confirm,
+    Move,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +148,15 @@ pub fn is_draft(item: Item) -> bool {
     matches!(item, Item::Ws(DRAFT_ID) | Item::Todo(DRAFT_ID))
 }
 
+/// An item being moved with the keyboard, and where it was, to put it back on escape
+#[derive(Clone, Copy)]
+pub struct Moving {
+    pub item: Item,
+    pub parent: Parent,
+    pub after: Option<Item>,
+    pub ws: Option<i64>,
+}
+
 /// A new item being added, which only goes into the database once it has a description
 #[derive(Clone, Copy)]
 pub struct Draft {
@@ -263,6 +273,7 @@ pub struct App {
     pub collapsed: HashSet<Item>,
     pub show_completed: bool,
     pub drag: Option<Drag>,
+    pub moving: Option<Moving>,
     pub keys: KeyManager,
     pub bar: Bar,
     pub show_confirm: bool,
@@ -284,6 +295,7 @@ impl App {
             collapsed: HashSet::new(),
             show_completed: false,
             drag: None,
+            moving: None,
             keys: KeyManager::with_defaults(),
             bar: Bar::Status,
             show_confirm: true,
@@ -588,6 +600,13 @@ impl App {
             self.mode = Mode::Normal;
         }
 
+        if self.mode == Mode::Move {
+            if let Err(e) = self.move_keypress(&key) {
+                self.notify(e, Level::Error);
+            }
+            return;
+        }
+
         match self.keys.register(&key, self.mode == Mode::Normal) {
             KeyMatch::NoMatch => self.tree_keypress(&key),
             KeyMatch::Multiple => {}
@@ -605,7 +624,7 @@ impl App {
     }
 
     pub fn on_mouse(&mut self, event: MouseEvent) {
-        if self.help.is_some() || self.bar_focused() || !self.wants_mouse() {
+        if self.help.is_some() || self.bar_focused() || !self.wants_mouse() || self.mode == Mode::Move {
             return;
         }
         let (x, y) = (event.column, event.row);
@@ -786,6 +805,83 @@ impl App {
         }
         self.db.move_to(item, parent, after)?;
         self.refresh_all();
+        self.highlight_item(tree, item);
+        Ok(())
+    }
+
+    fn start_move(&mut self, tree: TreeRef) -> Result<()> {
+        let item = self.current_item(tree)?;
+        let parent = self.db.parent_of(item).ok_or(NO_NODE)?;
+        let siblings = self.db.siblings(item);
+        let index = siblings.iter().position(|s| *s == item).unwrap_or(0);
+        let after = index.checked_sub(1).map(|i| siblings[i]);
+        self.moving = Some(Moving { item, parent, after, ws: self.current_ws() });
+        self.mode = Mode::Move;
+        Ok(())
+    }
+
+    /// The tree the item being moved is in, after a move to another workspace too
+    fn moving_tree(&self, item: Item) -> TreeRef {
+        match (item, self.current_ws()) {
+            (Item::Todo(_), Some(ws)) => TreeRef::Todos(ws),
+            _ => TreeRef::Workspaces,
+        }
+    }
+
+    fn move_keypress(&mut self, key: &str) -> Result<()> {
+        let Some(moving) = self.moving else {
+            self.mode = Mode::Normal;
+            return Ok(());
+        };
+        let item = moving.item;
+
+        match key {
+            "enter" => {
+                self.moving = None;
+                self.mode = Mode::Normal;
+                self.focus = if item.is_todo() { Focus::Todos } else { Focus::Workspaces };
+            }
+            "escape" => {
+                if self.db.exists(item) {
+                    self.db.move_to(item, moving.parent, moving.after)?;
+                }
+                self.moving = None;
+                self.mode = Mode::Normal;
+                if let Some(ws) = moving.ws {
+                    self.highlight_item(TreeRef::Workspaces, Item::Ws(ws));
+                }
+                self.focus = if item.is_todo() { Focus::Todos } else { Focus::Workspaces };
+            }
+            // a todo picks its workspace in the workspace list
+            "tab" if item.is_todo() => {
+                self.focus = if self.focus == Focus::Todos { Focus::Workspaces } else { Focus::Todos };
+            }
+            "up" | "k" | "down" | "j" if item.is_todo() && self.focus == Focus::Workspaces => {
+                let down = matches!(key, "down" | "j");
+                if let Some(Item::Ws(ws)) = self.move_target(TreeRef::Workspaces, down) {
+                    let last = self.db.children(Parent::Ws(ws), true).last().copied();
+                    self.db.move_to(item, Parent::Ws(ws), last.filter(|l| *l != item))?;
+                    self.highlight_item(TreeRef::Workspaces, Item::Ws(ws));
+                }
+            }
+            "up" | "k" => {
+                self.db.shift_up(item)?;
+            }
+            "down" | "j" => {
+                self.db.shift_down(item)?;
+            }
+            "right" | "l" => {
+                if let Some(parent) = self.db.indent(item)? {
+                    self.collapsed.remove(&parent);
+                }
+            }
+            "left" | "h" => {
+                self.db.dedent(item)?;
+            }
+            _ => return Ok(()),
+        }
+        self.refresh_all();
+        let tree = self.moving_tree(item);
         self.highlight_item(tree, item);
         Ok(())
     }
@@ -1477,6 +1573,7 @@ impl App {
                     self.remove_completed(ws);
                 }
             }
+            Action::StartMove => self.start_move(tree)?,
             Action::StartSearch => {
                 self.current_item(tree)?;
                 self.bar = Bar::Search { input: Input::new("/"), tree };

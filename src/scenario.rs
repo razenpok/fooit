@@ -540,6 +540,63 @@ fn closing_while_adding_keeps_no_empty_todo() {
 }
 
 #[test]
+fn move_mode() {
+    let mut app = temp_app("move");
+    press(&mut app, "aWork");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Other");
+    save_and_open(&mut app);
+    press(&mut app, "existing");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+    for d in ["one", "two", "three"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+
+    // up and down shift it, right and left nest it, enter keeps it there
+    press(&mut app, "m");
+    assert_eq!(app.mode, app::Mode::Move);
+    key(&mut app, KeyCode::Up);
+    assert_eq!(descriptions(&app), ["one", "three", "two"]);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(depths(&app), [("one".into(), 0), ("three".into(), 1), ("two".into(), 0)]);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(highlighted(&app), "three");
+
+    // tab picks a workspace, which the todo moves to straight away
+    press(&mut app, "gg");
+    press(&mut app, "m");
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.db.description(db::Item::Ws(app.current_ws().unwrap())), "Other");
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(depths(&app), [("existing".into(), 0), ("one".into(), 0), ("three".into(), 1)]);
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.focused_tree().is_todos());
+    assert_eq!(descriptions(&app), ["one", "three", "existing"]);
+
+    // escape puts it back where it was, workspace included
+    press(&mut app, "m");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Tab);
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.db.description(db::Item::Ws(app.current_ws().unwrap())), "Work");
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert!(app.focused_tree().is_todos());
+    assert_eq!(app.db.description(db::Item::Ws(app.current_ws().unwrap())), "Other");
+    assert_eq!(descriptions(&app), ["one", "three", "existing"]);
+    assert_eq!(highlighted(&app), "one");
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));
