@@ -67,7 +67,7 @@ impl Field {
 }
 
 pub const WORKSPACE_LAYOUT: &[Field] = &[Field::Description];
-pub const TODO_LAYOUT: &[Field] = &[Field::Status, Field::Description, Field::Due, Field::Urgency];
+pub const TODO_LAYOUT: &[Field] = &[Field::Status, Field::Description, Field::Due, Field::Recurrence, Field::Urgency];
 
 pub fn layout(tree: TreeRef) -> &'static [Field] {
     if tree.is_todos() { TODO_LAYOUT } else { WORKSPACE_LAYOUT }

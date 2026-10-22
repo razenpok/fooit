@@ -250,7 +250,10 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
         Field::Effort => vec![Span::raw(todo.effort.to_string())],
         Field::Recurrence => match todo.recurrence {
             None => vec![],
-            Some(r) => vec![Span::raw(crate::dates::recurrence_to_string(r))],
+            Some(r) => {
+                let color = if done { DIM } else { Color::Cyan };
+                vec![Span::styled(format!("↻{}", crate::dates::recurrence_to_string(r)), Style::new().fg(color))]
+            }
         },
     }
 }

@@ -44,7 +44,7 @@ drops it.
 | down / up | next / previous item on the same level, wrapping around it |
 | right, `l` / left, `h` | into the subtasks / to the parent |
 | `gg` / `G` | top / bottom |
-| `i` `d` | edit description / due date |
+| `i` `d` `r` | edit description / due date / recurrence (`1d`, `2w`, `12h`) |
 | `a`, `enter` / `A` | add sibling / child |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |

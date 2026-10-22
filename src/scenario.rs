@@ -722,10 +722,11 @@ fn walkthrough() {
     press(&mut app, "<<");
     screen(&mut term, &mut app, "dedented");
 
-    // unknown column
-    press(&mut app, "r");
-    let s = screen(&mut term, &mut app, "no such column");
-    assert!(s.contains("No such column: recurrence"));
+    // recurrence
+    press(&mut app, "r1w");
+    key(&mut app, KeyCode::Enter);
+    let s = screen(&mut term, &mut app, "recurrence");
+    assert!(s.contains("↻1w"));
 
     // search, ignoring case
     press(&mut app, "/sEC");
