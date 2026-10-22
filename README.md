@@ -49,7 +49,7 @@ drops it.
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
 | `m` | move mode (see below) |
-| `>>` / `<<` | indent / dedent |
+| `>>`, `.` / `<<`, `,` | indent / dedent |
 | `xx` | remove (asks for confirmation) |
 | `y` / `Y` | copy description / copy item |
 | `p` / `P` | paste item below / above |
