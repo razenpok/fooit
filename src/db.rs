@@ -158,6 +158,13 @@ impl SortField {
     }
 }
 
+/// Every row, to put back with `restore`
+#[derive(Clone)]
+pub struct Snapshot {
+    workspaces: Vec<Workspace>,
+    todos: Vec<Todo>,
+}
+
 pub struct Db {
     conn: Connection,
     path: PathBuf,
@@ -813,6 +820,49 @@ impl Db {
         tx.commit().map_err(err)?;
         self.finish()?;
         Ok(true)
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            workspaces: self.workspaces.values().cloned().collect(),
+            todos: self.todos.values().cloned().collect(),
+        }
+    }
+
+    /// Replace every row with the ones in a snapshot, ids included
+    pub fn restore(&mut self, snapshot: &Snapshot) -> Result<()> {
+        let tx = self.conn.transaction().map_err(err)?;
+        tx.execute("DELETE FROM todo", []).map_err(err)?;
+        tx.execute("DELETE FROM workspace", []).map_err(err)?;
+        for w in &snapshot.workspaces {
+            tx.execute(
+                "INSERT INTO workspace (id, order_index, description, is_root, parent_workspace_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![w.id, w.order_index, w.description, w.is_root as i64, w.parent_workspace_id],
+            )
+            .map_err(err)?;
+        }
+        for t in &snapshot.todos {
+            tx.execute(
+                "INSERT INTO todo (id, order_index, description, due, effort, recurrence, urgency, pending, \
+                 parent_workspace_id, parent_todo_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    t.id,
+                    t.order_index,
+                    t.description,
+                    opt_dt(t.due),
+                    t.effort,
+                    opt_td(t.recurrence),
+                    t.urgency,
+                    t.pending as i64,
+                    t.parent_workspace_id,
+                    t.parent_todo_id,
+                ],
+            )
+            .map_err(err)?;
+        }
+        tx.commit().map_err(err)?;
+        self.finish()
     }
 
     /// Move the item, with everything beneath it, under a parent: right after `after`, or first

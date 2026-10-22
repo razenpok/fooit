@@ -51,6 +51,7 @@ drops it.
 | `H` | show / hide completed todos |
 | `X` | remove the workspace's completed todos (asks for confirmation) |
 | `+` `=` / `-` `_` | urgency up / down |
+| `u` / `ctrl+r` | undo / redo |
 | `/` | search |
 | `ctrl+s` | sort siblings |
 | `?` | help |

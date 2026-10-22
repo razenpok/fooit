@@ -597,6 +597,51 @@ fn move_mode() {
 }
 
 #[test]
+fn undo_and_redo() {
+    let mut app = temp_app("undo");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    for d in ["one", "two", "three"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+
+    // removing, then undoing it, brings the todo back
+    press(&mut app, "xxy");
+    assert_eq!(descriptions(&app), ["one", "two"]);
+    press(&mut app, "u");
+    assert_eq!(descriptions(&app), ["one", "two", "three"]);
+    app.on_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+    assert_eq!(descriptions(&app), ["one", "two"]);
+    press(&mut app, "u");
+
+    // a whole move is one step, and one put back with escape is none
+    press(&mut app, "Gm");
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Up);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(descriptions(&app), ["three", "one", "two"]);
+    press(&mut app, "m");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "u");
+    assert_eq!(descriptions(&app), ["one", "two", "three"]);
+
+    // editing and adding are undone too
+    press(&mut app, "i!");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["one", "two", "three!"]);
+    press(&mut app, "u");
+    assert_eq!(descriptions(&app), ["one", "two", "three"]);
+    press(&mut app, "u");
+    assert_eq!(descriptions(&app), ["one", "two"]);
+    press(&mut app, "uuuu");
+    assert_eq!(app.tree(app.focused_tree()).map_or(0, |t| t.rows.len()), 0);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

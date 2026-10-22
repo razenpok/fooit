@@ -1,7 +1,7 @@
 //! Application state and behaviour, mirroring dooit's trees, bars and API
 
 use crate::dates;
-use crate::db::{Db, Item, Parent, SortField};
+use crate::db::{Db, Item, Parent, Snapshot, SortField};
 use crate::input::Input;
 use crate::keys::{self, Action, KeyManager, KeyMatch};
 use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
@@ -274,6 +274,12 @@ pub struct App {
     pub show_completed: bool,
     pub drag: Option<Drag>,
     pub moving: Option<Moving>,
+    undo: Vec<Snapshot>,
+    redo: Vec<Snapshot>,
+    /// The data as it was after the last change, and its generation
+    undo_base: (u64, Snapshot),
+    /// The last change only put things back, so it is not one to undo
+    undo_skip: bool,
     pub keys: KeyManager,
     pub bar: Bar,
     pub show_confirm: bool,
@@ -286,6 +292,7 @@ pub struct App {
 
 impl App {
     pub fn new(db: Db) -> App {
+        let undo_base = (db.generation, db.snapshot());
         let mut app = App {
             db,
             ws_tree: TreeState::default(),
@@ -296,6 +303,10 @@ impl App {
             show_completed: false,
             drag: None,
             moving: None,
+            undo: vec![],
+            redo: vec![],
+            undo_base,
+            undo_skip: false,
             keys: KeyManager::with_defaults(),
             bar: Bar::Status,
             show_confirm: true,
@@ -550,6 +561,10 @@ impl App {
             self.last_poll = Instant::now();
             if self.db.has_changed() {
                 self.refresh_all();
+                // changes made elsewhere are not ours to undo
+                if self.mode != Mode::Move {
+                    self.undo_base = (self.db.generation, self.db.snapshot());
+                }
                 changed = true;
             }
         }
@@ -572,6 +587,45 @@ impl App {
     }
 
     pub fn on_key(&mut self, event: KeyEvent) {
+        self.handle_key(event);
+        self.record_change();
+    }
+
+    pub fn on_mouse(&mut self, event: MouseEvent) {
+        self.handle_mouse(event);
+        self.record_change();
+    }
+
+    /// Keep what the data was before a change, for undo. A whole move counts as one change
+    fn record_change(&mut self) {
+        if self.mode == Mode::Move || self.db.generation == self.undo_base.0 {
+            return;
+        }
+        let before = std::mem::replace(&mut self.undo_base, (self.db.generation, self.db.snapshot()));
+        if !std::mem::take(&mut self.undo_skip) {
+            self.undo.push(before.1);
+            if self.undo.len() > 100 {
+                self.undo.remove(0);
+            }
+            self.redo.clear();
+        }
+    }
+
+    fn undo(&mut self, redo: bool) -> Result<()> {
+        let (from, to) = if redo { (&mut self.redo, &mut self.undo) } else { (&mut self.undo, &mut self.redo) };
+        let Some(snapshot) = from.pop() else {
+            self.notify(if redo { "Nothing to redo" } else { "Nothing to undo" }, Level::Info);
+            return Ok(());
+        };
+        to.push(self.db.snapshot());
+        self.db.restore(&snapshot)?;
+        self.undo_base = (self.db.generation, snapshot);
+        self.refresh_all();
+        self.notify(if redo { "Redone" } else { "Undone" }, Level::Info);
+        Ok(())
+    }
+
+    fn handle_key(&mut self, event: KeyEvent) {
         let Some(key) = keys::resolve(event) else { return };
 
         if key == "ctrl+c" {
@@ -623,7 +677,7 @@ impl App {
         self.mode != Mode::Insert
     }
 
-    pub fn on_mouse(&mut self, event: MouseEvent) {
+    fn handle_mouse(&mut self, event: MouseEvent) {
         if self.help.is_some() || self.bar_focused() || !self.wants_mouse() || self.mode == Mode::Move {
             return;
         }
@@ -845,6 +899,7 @@ impl App {
                 if self.db.exists(item) {
                     self.db.move_to(item, moving.parent, moving.after)?;
                 }
+                self.undo_skip = true;
                 self.moving = None;
                 self.mode = Mode::Normal;
                 if let Some(ws) = moving.ws {
@@ -1574,6 +1629,8 @@ impl App {
                 }
             }
             Action::StartMove => self.start_move(tree)?,
+            Action::Undo => self.undo(false)?,
+            Action::Redo => self.undo(true)?,
             Action::StartSearch => {
                 self.current_item(tree)?;
                 self.bar = Bar::Search { input: Input::new("/"), tree };
