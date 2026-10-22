@@ -433,7 +433,8 @@ fn parse_from_now(value: &str) -> Option<NaiveDateTime> {
 }
 
 /// What a new todo's text asks for: an urgency as `!1` to `!4` anywhere, and a due date in its
-/// last words, such as `tomorrow`, `fri 10:30`, `on oct 30` or `at 5pm`. The rest is the
+/// last words, such as `tomorrow`, `fri 10:30`, `on oct 30`, `at 5pm` or a time from now like
+/// `1d 5h` or `in 30m`. The rest is the
 /// description. Plain words that could be dates ("sun", "may") and lone numbers are left alone
 pub fn quick_add(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
     let mut words: Vec<&str> = text.split_whitespace().collect();
@@ -441,6 +442,23 @@ pub fn quick_add(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
     let is_urgency = |w: &str| matches!(w, "!1" | "!2" | "!3" | "!4");
     let urgency = words.iter().rev().find(|w| is_urgency(w)).map(|w| w[1..].parse().unwrap());
     words.retain(|w| !is_urgency(w));
+
+    // a time from now at the end: "1d 5h", "in 30m"
+    let is_duration = |w: &str| {
+        let w = w.trim_start_matches('+');
+        w.len() > 1 && w.ends_with(['m', 'h', 'd', 'w']) && w[..w.len() - 1].chars().all(|c| c.is_ascii_digit())
+    };
+    let durations = words.iter().rev().take_while(|w| is_duration(w)).count().min(words.len().saturating_sub(1));
+    if durations > 0 {
+        let mut start = words.len() - durations;
+        if start > 1 && words[start - 1].eq_ignore_ascii_case("in") {
+            start -= 1;
+        }
+        if let Some(due) = parse_from_now(&words[start..].join(" ")) {
+            words.truncate(start);
+            return (words.join(" "), Some(due), urgency);
+        }
+    }
 
     // the longest run of date words at the end that parses, leaving some description
     let mut due = None;
@@ -523,8 +541,14 @@ mod tests {
         let (text, due, _) = quick_add("standup at 5pm");
         assert_eq!((text.as_str(), due.unwrap().hour()), ("standup", 17));
 
+        let (text, due, _) = quick_add("call back 1d 5h");
+        assert_eq!(text, "call back");
+        assert!((due.unwrap() - now() - Duration::hours(29)).num_seconds().abs() < 5);
+        let (text, due, _) = quick_add("renew passport in 2w !2");
+        assert_eq!((text.as_str(), due.unwrap().date()), ("renew passport", today + Duration::weeks(2)));
+
         // words that only might be dates stay in the description
-        for plain in ["read chapter 5", "fix the sun", "it may", "tomorrow", "plan today's meeting", "!5 stars"] {
+        for plain in ["read chapter 5", "fix the sun", "it may", "tomorrow", "plan today's meeting", "!5 stars", "5h", "run 5k"] {
             let (text, due, urgency) = quick_add(plain);
             assert_eq!((text.as_str(), due, urgency), (plain, None, None), "{plain}");
         }

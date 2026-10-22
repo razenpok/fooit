@@ -28,7 +28,8 @@ topmost workspace.
 
 A new todo's text can set its urgency with `!2` to `!4` anywhere, and its due date with
 its last words: `today`, `tomorrow`, a weekday (`fri`, `friday`), a date (`oct 30`,
-`2026-11-02`) and/or a time (`10:30`, `5pm`), optionally after `on` or `at`. So
+`2026-11-02`) and/or a time (`10:30`, `5pm`), optionally after `on` or `at`, or a time
+from now (`1d 5h`, `in 30m`). So
 `fooit pay rent fri !3` adds "pay rent", due Friday, urgency 3. `#name` anywhere
 sends it to the bottom of the workspace with that name, or the first one whose name
 starts with it (case and spaces don't matter): `fooit call bank #tiara`. Editing an existing
