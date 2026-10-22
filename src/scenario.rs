@@ -597,6 +597,27 @@ fn move_mode() {
 }
 
 #[test]
+fn new_todos_read_due_dates_and_urgency() {
+    let mut app = temp_app("quick-add");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    press(&mut app, "pay rent tomorrow !3");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    let db::Item::Todo(id) = app.tree(app.focused_tree()).unwrap().rows[0].item else { panic!() };
+    let todo = app.db.todo(id).unwrap();
+    assert_eq!((todo.description.as_str(), todo.urgency), ("pay rent", 3));
+    assert_eq!(todo.due.unwrap().date(), dates::now().date() + chrono::Duration::days(1));
+
+    // only new todos: editing keeps the words
+    press(&mut app, "i");
+    press(&mut app, " tomorrow");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["pay rent tomorrow"]);
+}
+
+#[test]
 fn undo_and_redo() {
     let mut app = temp_app("undo");
     press(&mut app, "aWork");

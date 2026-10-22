@@ -402,10 +402,89 @@ pub fn parse_due(value: &str) -> Option<NaiveDateTime> {
     parsed.build()
 }
 
+/// What a new todo's text asks for: an urgency as `!1` to `!4` anywhere, and a due date in its
+/// last words, such as `tomorrow`, `fri 10:30`, `on oct 30` or `at 5pm`. The rest is the
+/// description. Plain words that could be dates ("sun", "may") and lone numbers are left alone
+pub fn quick_add(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
+    let mut words: Vec<&str> = text.split_whitespace().collect();
+
+    let is_urgency = |w: &str| matches!(w, "!1" | "!2" | "!3" | "!4");
+    let urgency = words.iter().rev().find(|w| is_urgency(w)).map(|w| w[1..].parse().unwrap());
+    words.retain(|w| !is_urgency(w));
+
+    // the longest run of date words at the end that parses, leaving some description
+    let mut due = None;
+    for k in (1..words.len()).rev() {
+        let phrase = &words[words.len() - k..];
+        if !is_date_phrase(phrase) {
+            continue;
+        }
+        if let Some(parsed) = parse_due(&phrase.join(" ")) {
+            due = Some(parsed);
+            words.truncate(words.len() - k);
+            break;
+        }
+    }
+    (words.join(" "), due, urgency)
+}
+
+fn is_date_phrase(words: &[&str]) -> bool {
+    const DAYS: [&str; 10] = ["today", "tomorrow", "mon", "tue", "tues", "thu", "thur", "thurs", "fri", "now"];
+    const FULL_DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+    let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    let is_number = |w: &str| {
+        let digits = w.trim_end_matches(['s', 't', 'n', 'd', 'r', 'h']);
+        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+    };
+    // a month only counts with a day: "oct 30", not "may"
+    let month = lower.iter().any(|w| w.len() >= 3 && month_from_name(w).is_some())
+        && lower.iter().any(|w| is_number(w));
+    let mut anchored = false;
+    for word in &lower {
+        let number = is_number(word);
+        let (core, ampm) = split_ampm(word);
+        let time_or_date = word.chars().any(|c| c.is_ascii_digit())
+            && (word.contains([':', '-', '/']) || (ampm.is_some() && core.chars().all(|c| c.is_ascii_digit())));
+        if DAYS.contains(&word.as_str()) || FULL_DAYS.contains(&word.as_str()) || time_or_date || (month && word.len() >= 3 && month_from_name(word).is_some()) {
+            anchored = true;
+        } else if !(matches!(word.as_str(), "at" | "on") || (number && month)) {
+            return false;
+        }
+    }
+    anchored
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Timelike;
+
+    #[test]
+    fn quick_add_reads_due_dates_and_urgency() {
+        let today = now().date();
+        let (text, due, urgency) = quick_add("buy milk tomorrow !2");
+        assert_eq!((text.as_str(), urgency), ("buy milk", Some(2)));
+        assert_eq!(due.unwrap().date(), today + Duration::days(1));
+
+        let (text, due, _) = quick_add("call mom on friday at 10:30");
+        assert_eq!(text, "call mom");
+        let due = due.unwrap();
+        assert_eq!((due.weekday(), due.hour(), due.minute()), (Weekday::Fri, 10, 30));
+
+        let (text, due, _) = quick_add("pay rent oct 30");
+        assert_eq!(text, "pay rent");
+        assert_eq!((due.unwrap().month(), due.unwrap().day()), (10, 30));
+
+        let (text, due, _) = quick_add("standup at 5pm");
+        assert_eq!((text.as_str(), due.unwrap().hour()), ("standup", 17));
+
+        // words that only might be dates stay in the description
+        for plain in ["read chapter 5", "fix the sun", "it may", "tomorrow", "plan today's meeting", "!5 stars"] {
+            let (text, due, urgency) = quick_add(plain);
+            assert_eq!((text.as_str(), due, urgency), (plain, None, None), "{plain}");
+        }
+    }
 
     #[test]
     fn sql_roundtrip() {

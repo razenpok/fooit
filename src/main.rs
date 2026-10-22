@@ -67,7 +67,7 @@ fn expand_user(path: &str) -> PathBuf {
 fn add_task(db: &mut db::Db, description: &str) -> Result<String, String> {
     let root = db.root_id().ok_or("No workspace to add the task to")?;
     let ws = *db.children(db::Parent::Ws(root), false).first().ok_or("No workspace to add the task to")?;
-    db.insert_with_description(ws.as_parent(), true, None, description)?;
+    db.quick_add_todo(ws.as_parent(), None, description)?;
     Ok(db.description(ws).to_string())
 }
 

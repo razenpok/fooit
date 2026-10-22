@@ -822,6 +822,21 @@ impl Db {
         Ok(true)
     }
 
+    /// Add a todo from text that may end in a due date and hold an urgency, see `dates::quick_add`
+    pub fn quick_add_todo(&mut self, parent: Parent, position: Option<usize>, text: &str) -> Result<Item> {
+        let (description, due, urgency) = dates::quick_add(text);
+        let item = self.insert_with_description(parent, true, position, &description)?;
+        if due.is_some() || urgency.is_some() {
+            let Item::Todo(id) = item else { return Ok(item) };
+            if let Some(mut todo) = self.todo(id).cloned() {
+                todo.due = due.or(todo.due);
+                todo.urgency = urgency.unwrap_or(todo.urgency);
+                self.update_todo(todo)?;
+            }
+        }
+        Ok(item)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             workspaces: self.workspaces.values().cloned().collect(),

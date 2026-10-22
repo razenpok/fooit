@@ -26,6 +26,12 @@ fooit buy milk
 Anything that isn't an option or command is added as a todo at the bottom of the
 topmost workspace.
 
+A new todo's text can set its urgency with `!2` to `!4` anywhere, and its due date with
+its last words: `today`, `tomorrow`, a weekday (`fri`, `friday`), a date (`oct 30`,
+`2026-11-02`) and/or a time (`10:30`, `5pm`), optionally after `on` or `at`. So
+`fooit pay rent fri !3` adds "pay rent", due Friday, urgency 3. Editing an existing
+todo leaves its text as typed.
+
 The app opens on the first workspace's todos, already adding a new one; `escape`
 drops it.
 

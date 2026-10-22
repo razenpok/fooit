@@ -1198,7 +1198,12 @@ impl App {
         if !discard && !description.is_empty() {
             let siblings = self.db.children(draft.parent, draft.item.is_todo());
             let position = draft.after.and_then(|a| siblings.iter().position(|s| *s == a)).map_or(0, |i| i + 1);
-            match self.db.insert_with_description(draft.parent, draft.item.is_todo(), Some(position), &description) {
+            let added = if draft.item.is_todo() {
+                self.db.quick_add_todo(draft.parent, Some(position), &description)
+            } else {
+                self.db.insert_with_description(draft.parent, false, Some(position), &description)
+            };
+            match added {
                 Ok(item) => {
                     self.refresh_all();
                     self.highlight_item(tree, item);
