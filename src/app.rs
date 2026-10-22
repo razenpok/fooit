@@ -962,6 +962,12 @@ impl App {
             "tab" if item.is_todo() => {
                 self.focus = if self.focus == Focus::Todos { Focus::Workspaces } else { Focus::Todos };
             }
+            // left out of the top level goes on to the workspaces, right comes back
+            "left" | "h" if item.is_todo() && self.focus == Focus::Todos && self.db.same_kind_parent(item).is_none() => {
+                self.focus = Focus::Workspaces;
+            }
+            "right" | "l" if item.is_todo() && self.focus == Focus::Workspaces => self.focus = Focus::Todos,
+            "left" | "h" if item.is_todo() && self.focus == Focus::Workspaces => return Ok(()),
             "up" | "k" | "down" | "j" if item.is_todo() && self.focus == Focus::Workspaces => {
                 let down = matches!(key, "down" | "j");
                 if let Some(Item::Ws(ws)) = self.move_target(TreeRef::Workspaces, down) {

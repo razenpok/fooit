@@ -582,6 +582,15 @@ fn move_mode() {
     assert!(app.focused_tree().is_todos());
     assert_eq!(descriptions(&app), ["one", "three", "existing"]);
 
+    // left from the top level goes to the workspaces, right comes back
+    press(&mut app, "m");
+    key(&mut app, KeyCode::Left);
+    assert!(!app.focused_tree().is_todos());
+    key(&mut app, KeyCode::Right);
+    assert!(app.focused_tree().is_todos());
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(depths(&app), [("one".into(), 0), ("three".into(), 1), ("existing".into(), 0)]);
+
     // escape puts it back where it was, workspace included
     press(&mut app, "m");
     key(&mut app, KeyCode::Down);

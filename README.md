@@ -69,8 +69,9 @@ edit and then move the cursor. `tab` / `shift+tab` nest the item under the one a
 it / move it out of its parent while you keep typing, also for a new item.
 
 In move mode (`m`) up and down move the item among its siblings and right and left
-nest it or move it out. For a todo, `tab` goes to the workspace list, where up and down
-move it to the bottom of the highlighted workspace, and `tab` goes back. `enter` keeps
+nest it or move it out. For a todo, `tab` (or left from the top level) goes to the
+workspace list, where up and down move it to the bottom of the highlighted workspace,
+and `tab` or right goes back. `enter` keeps
 it where it is and `escape` puts it back where it was.
 
 Completed todos are hidden, once the cursor has left them and their children.

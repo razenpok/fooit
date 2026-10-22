@@ -568,7 +568,7 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
         _ if app.help.is_some() => options(&[("Close", "esc"), ("Scroll", "j/k")]),
         Bar::Status if app.mode == Mode::Move && app.focus == Focus::Workspaces => options(&[
             ("Move to workspace", "up/down"),
-            ("Back to todos", "tab"),
+            ("Back to todos", "tab/right"),
             ("Done", "enter"),
             ("Put back", "esc"),
         ]),
