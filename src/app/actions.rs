@@ -170,8 +170,12 @@ impl App {
                     self.highlight_item(tree, item);
                 }
             }
-            // from the workspaces, right goes on to the todos like tab
-            Action::IntoChildren if tree == TreeRef::Workspaces => return self.run(Action::SwitchFocus),
+            // from a workspace without child workspaces, right goes on to its todos like tab
+            Action::IntoChildren
+                if tree == TreeRef::Workspaces && !self.current_item(tree).is_ok_and(|ws| self.has_children(ws)) =>
+            {
+                return self.run(Action::SwitchFocus)
+            }
             Action::IntoChildren => {
                 let item = self.current_item(tree)?;
                 if self.collapsed.remove(&item) {

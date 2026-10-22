@@ -53,7 +53,7 @@ completed and edited there; adding and arranging happens in their workspace.
 | `j` / `k` | move down / up a row |
 | down / up | next / previous item on the same level |
 | | past the first or last item of a level (the workspaces, a workspace's todos, a todo's subtasks; the whole list for `j`/`k`), a new item starts at its end; from that new item, down goes round to the first and up back to the last |
-| right, `l` / left, `h` | into the subtasks / to the parent; from the workspaces, or a top-level todo, like `tab` |
+| right, `l` / left, `h` | into the subtasks (or child workspaces) / to the parent; from a workspace without child workspaces, or a top-level todo, like `tab` |
 | `g` / `G` | top / bottom |
 | `i`, space / `d` / `r` | edit description / due date (a date, or from now: `1d`, `1d 5h`, `30m`) / recurrence (`1d`, `2w`, `12h`) |
 | `a`, `enter` / `A` | add sibling / child |

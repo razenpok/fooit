@@ -498,6 +498,21 @@ fn up_and_down_wrap_around() {
     assert_eq!(app.mode, app::Mode::Normal);
     assert_eq!(highlighted(&app), "two");
 
+    // right goes into child workspaces first, and on to the todos from a workspace without
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "GAInner");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "G");
+    key(&mut app, KeyCode::Left);
+    assert_eq!(app.db.description(app.tree(app.focused_tree()).unwrap().current().unwrap()), "Work");
+    key(&mut app, KeyCode::Right);
+    assert!(!app.focused_tree().is_todos());
+    assert_eq!(app.db.description(app.tree(app.focused_tree()).unwrap().current().unwrap()), "Inner");
+    key(&mut app, KeyCode::Right);
+    assert!(app.focused_tree().is_todos());
+    key(&mut app, KeyCode::Esc);
+
     // the workspace list is a scope too
     key(&mut app, KeyCode::Tab);
     press(&mut app, "G");
