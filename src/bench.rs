@@ -154,23 +154,23 @@ fn scrolls_with_wrapped_rows() {
     seed(&path, 50, 0); // 200 todos in each workspace
     let mut app = app::App::new(db::Db::open(&path).unwrap());
     app.show_completed = true;
-    let mut term = Terminal::new(TestBackend::new(60, 12)).unwrap(); // narrow, so descriptions wrap
+    let mut term = Terminal::new(TestBackend::new(52, 12)).unwrap(); // narrow, so descriptions wrap
     press(&mut app, KeyCode::Char('j'));
     press(&mut app, KeyCode::Tab);
     press(&mut app, KeyCode::Esc);
 
     press(&mut app, KeyCode::Char('G'));
     let s = screen(&mut term, &mut app);
-    assert!(s.contains("Todo 200 "));
+    assert!(s.contains("Todo 200 "), "{s}");
     for _ in 0..3 {
         press(&mut app, KeyCode::Char('k'));
     }
     let s = screen(&mut term, &mut app);
-    assert!(s.contains("Todo 197 ") && !s.contains("Todo 200 ")); // each row wraps to 4 of the 7 lines
+    assert!(s.contains("Todo 197 ") && !s.contains("Todo 200 "), "{s}"); // each row wraps to 4 of the 9 lines
     press(&mut app, KeyCode::Char('g'));
     press(&mut app, KeyCode::Char('g'));
     let s = screen(&mut term, &mut app);
-    assert!(s.contains("Todo 1 ") && !s.contains("Todo 197 "));
+    assert!(s.contains("Todo 1 ") && !s.contains("Todo 197 "), "{s}");
     let _ = std::fs::remove_file(&path);
 }
 

@@ -62,7 +62,8 @@ Completed todos are hidden, once the cursor has left them and their children.
 
 ## Mouse
 
-- Click a todo's status to toggle it.
+- Click a todo's status to toggle it, or the `▾` / `▸` in front of an item to collapse or
+  expand it.
 - Click a todo's description, due date or urgency to edit it, with the cursor where
   you clicked. Click a workspace to select it.
 - Drag a row to move it along with its children. Moving sideways while dragging

@@ -481,7 +481,7 @@ mod scenario {
             let view = &app.tree(app.focused_tree()).unwrap().view;
             let index = descriptions(app).iter().position(|d| d == name).unwrap();
             let (_, top, _) = view.rows.iter().find(|(i, _, _)| *i == index).unwrap();
-            (view.area.x + app::indent(depth) as u16 + 1, *top)
+            (view.area.x + (app::indent(depth) + app::MARKER_WIDTH) as u16, *top)
         };
         let mouse = |app: &mut app::App, kind, (x, y): (u16, u16)| {
             app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
@@ -551,8 +551,8 @@ mod scenario {
         key(&mut app, KeyCode::Enter);
         key(&mut app, KeyCode::Esc);
         let b = at(&mut term, &mut app, "B", 1);
-        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (b.0 + 3, b.1));
-        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (b.0 + 3, b.1));
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (b.0 + 2, b.1));
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), (b.0 + 2, b.1));
         press(&mut app, "y");
         key(&mut app, KeyCode::Up);
         assert_eq!(depths(&app), [("A".into(), 0), ("Cx".into(), 0), ("yB".into(), 1)]);
@@ -589,7 +589,7 @@ mod scenario {
             let state = app.tree(tree).unwrap();
             let index = state.rows.iter().position(|r| app.db.description(r.item) == name).unwrap();
             let (_, top, _) = state.view.rows.iter().find(|(i, _, _)| *i == index).unwrap();
-            (state.view.area.x + 6, *top)
+            (state.view.area.x + app::MARKER_WIDTH as u16 + 3, *top)
         };
         let mouse = |app: &mut app::App, kind, (x, y): (u16, u16)| {
             app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
@@ -769,7 +769,7 @@ mod scenario {
         key(&mut app, KeyCode::Enter);
         press(&mut app, "++");
         let s = screen(&mut term, &mut app, "due + urgency");
-        assert!(s.contains("2020-01-02 (10:30)") && s.contains("!3") && s.contains("!"));
+        assert!(s.contains("2020-01-02 10:30") && s.contains("!3") && s.contains("!"));
 
         // indent the second todo under the first, then toggle completion of the child
         press(&mut app, ">>");

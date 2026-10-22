@@ -1,6 +1,6 @@
 //! Rendering, in the style of lazygit's default theme and layout
 
-use crate::app::{indent, is_draft, layout, row_cells, App, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, layout, row_cells, App, MARKER_WIDTH, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -17,7 +17,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 const ACTIVE_BORDER: Color = Color::Green;
 const SEARCHING_BORDER: Color = Color::Cyan;
 const OPTIONS: Color = Color::Blue;
-const SELECTED_LINE: Color = Color::Blue;
 const DIM: Color = Color::DarkGray;
 
 /// A lazygit panel: rounded border, green and bold when focused, "[n]─Title" at the top and
@@ -203,12 +202,6 @@ fn draw_dashboard(buf: &mut Buffer, area: Rect) {
 // ----------------------------------------------------------------------
 // Trees
 
-struct Cell {
-    lines: Vec<Vec<Span<'static>>>,
-    width: usize,
-    center: bool,
-}
-
 fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     let Item::Todo(id) = item else {
         return vec![Span::raw(display(app.db.description(item)))];
@@ -217,35 +210,40 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
         Span::styled(text, Style::new().fg(color).add_modifier(Modifier::BOLD))
     };
     if is_draft(item) && field == Field::Status {
-        return vec![bold("o".into(), Color::Yellow)];
+        return vec![Span::raw("○")];
     }
     let Some(todo) = app.db.todo(id) else { return vec![] };
+    let done = !todo.pending;
 
     match field {
+        Field::Description if done => vec![Span::styled(display(&todo.description), Style::new().fg(DIM))],
         Field::Description => vec![Span::raw(display(&todo.description))],
         Field::Status => vec![match todo.status() {
-            "completed" => bold("x".into(), Color::Green),
+            "completed" => Span::styled("✓", Style::new().fg(Color::Green)),
             "overdue" => bold("!".into(), Color::Red),
-            _ => bold("o".into(), Color::Yellow),
+            _ => Span::raw("○"),
         }],
         Field::Due => match todo.due {
             None => vec![],
             Some(due) => {
-                let mut text = due.format("%Y-%m-%d").to_string();
-                if due.hour() != 0 {
-                    text += &due.format(" (%H:%M)").to_string();
-                }
-                vec![Span::raw(text)]
+                let now = crate::dates::now();
+                let color = match () {
+                    _ if done => DIM,
+                    _ if todo.is_overdue() => Color::Red,
+                    _ if due.date() == now.date() => Color::Yellow,
+                    _ => Color::Reset,
+                };
+                vec![Span::styled(due_text(due, now), Style::new().fg(color))]
             }
         },
+        // the default urgency is not worth a column
+        Field::Urgency if done && todo.urgency > 1 => vec![Span::styled(format!("!{}", todo.urgency), Style::new().fg(DIM))],
         Field::Urgency => {
             let color = match todo.urgency {
-                0 => return vec![],
-                1 => Color::Green,
+                ..=1 => return vec![],
                 2 => Color::Yellow,
                 3 => Color::LightRed,
-                4 => Color::Red,
-                _ => Color::Cyan,
+                _ => Color::Red,
             };
             vec![bold(format!("!{}", todo.urgency), color)]
         }
@@ -257,34 +255,48 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     }
 }
 
+/// A due date relative to now: today, tomorrow, a weekday within the week, otherwise the date
+fn due_text(due: chrono::NaiveDateTime, now: chrono::NaiveDateTime) -> String {
+    use chrono::Datelike;
+    let days = (due.date() - now.date()).num_days();
+    let day = match days {
+        0 => "today".to_string(),
+        1 => "tomorrow".to_string(),
+        -1 => "yesterday".to_string(),
+        2..=6 => due.format("%a").to_string().to_lowercase(),
+        -6..=-2 => format!("{}d ago", -days),
+        _ if due.year() == now.year() => due.format("%b %-d").to_string(),
+        _ => due.format("%Y-%m-%d").to_string(),
+    };
+    if due.hour() != 0 || due.minute() != 0 {
+        format!("{} {}", day, due.format("%H:%M"))
+    } else {
+        day
+    }
+}
+
 fn spans_width(spans: &[Span]) -> usize {
     spans.iter().map(|s| text_width(&s.content)).sum()
 }
 
 /// The text shown for a cell: the live input while editing, otherwise the formatted value
-fn cell_content(app: &App, tree: TreeRef, item: Item, field: Field) -> (Vec<Span<'static>>, bool) {
+fn cell_content(app: &App, tree: TreeRef, item: Item, field: Field) -> Vec<Span<'static>> {
     if let Some(edit) = app.tree(tree).and_then(|t| t.editing()) {
         if edit.item == item && edit.field == field {
-            return (vec![Span::raw(display(&edit.input.render()))], false);
+            return vec![Span::raw(display(&edit.input.render()))];
         }
     }
-
-    let spans = formatted(app, item, field);
-    if spans_width(&spans) == 0 {
-        // empty values render as a dim, centered dash
-        return (vec![Span::styled("-", Style::new().add_modifier(Modifier::DIM))], true);
-    }
-    (spans, false)
+    formatted(app, item, field)
 }
 
-/// Width one row needs for a field when it is not being edited (empty values show a 1-wide dash)
+/// Width one row needs for a field when it is not being edited
 fn plain_width(app: &App, item: Item, field: Field) -> usize {
-    let rendered = spans_width(&formatted(app, item, field)).max(1);
-    (text_width(&app.edit_default(item, field)) + 1).max(rendered)
+    spans_width(&formatted(app, item, field))
 }
 
-/// Column widths shared by every row of a tree, like `ModelTree.get_column_width`. The per-row
-/// widths are cached until the rows or the data change; only the row being edited is re-measured
+/// Column widths shared by every row of a tree, like `ModelTree.get_column_width`, leaving out
+/// columns no row has a value for. The per-row widths are cached until the rows or the data
+/// change; only the row being edited is re-measured
 fn column_widths(app: &mut App, tree: TreeRef, rows: &[Row]) -> Vec<(Field, usize)> {
     let fields = layout(tree);
     let generation = app.db.generation;
@@ -315,63 +327,86 @@ fn column_widths(app: &mut App, tree: TreeRef, rows: &[Row]) -> Vec<(Field, usiz
                 .iter()
                 .zip(per_row)
                 .map(|(row, width)| match &editing {
-                    Some((item, f, value)) if *item == row.item && f == field => {
-                        let rendered = spans_width(&cell_content(app, tree, row.item, *field).0);
-                        (text_width(value) + 1).max(rendered)
-                    }
+                    Some((item, f, value)) if *item == row.item && f == field => text_width(value) + 1,
                     _ => *width,
                 })
                 .max()
-                .unwrap_or(1);
+                .unwrap_or(0);
             (*field, width)
         })
+        .filter(|(field, width)| *field == Field::Description || *width > 0)
         .collect()
 }
 
 fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], total: usize) -> Vec<Line<'static>> {
-    let description_width = row_cells(widths, row.depth, total)
+    let cells = row_cells(widths, row.depth, total);
+    let editing = app.tree(tree).and_then(|t| t.editing()).is_some_and(|e| e.item == row.item);
+    let dim = Style::new().fg(DIM);
+
+    // a dim note after the description: done and all children of a todo, open todos of a workspace
+    let note = match row.item {
+        _ if editing || is_draft(row.item) => None,
+        Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| format!("{}/{}", done, all)),
+        Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| open.to_string()),
+    };
+
+    let columns: Vec<Vec<Vec<Span<'static>>>> = cells
         .iter()
-        .find(|(f, _, _)| *f == Field::Description)
-        .map_or(1, |(_, _, w)| *w);
+        .map(|(field, _, width)| {
+            let spans = cell_content(app, tree, row.item, *field);
+            if *field != Field::Description {
+                return vec![spans.into_iter().map(|s| Span::styled(truncate(&s.content, *width), s.style)).collect()];
+            }
 
-    let mut cells = vec![];
-    if row.depth > 0 {
-        cells.push(Cell { lines: vec![vec![]], width: 2 * row.depth, center: false });
-    }
-
-    for (field, width) in widths {
-        let (spans, center) = cell_content(app, tree, row.item, *field);
-        if *field == Field::Description {
             let style = spans.first().map(|s| s.style).unwrap_or_default();
             let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-            let lines = wrap(&text, description_width)
-                .into_iter()
-                .map(|l| vec![Span::styled(l, style)])
-                .collect();
-            cells.push(Cell { lines, width: description_width, center });
-        } else {
-            let spans = spans
-                .into_iter()
-                .map(|s| Span::styled(truncate(&s.content, *width), s.style))
-                .collect();
-            cells.push(Cell { lines: vec![spans], width: *width, center });
-        }
-    }
+            match &note {
+                // a workspace's count sits at the right edge of its first line
+                Some(note) if !tree.is_todos() => {
+                    let note_width = text_width(note);
+                    let mut lines: Vec<Vec<Span>> = wrap(&text, width.saturating_sub(note_width + 1).max(1))
+                        .into_iter()
+                        .map(|l| vec![Span::styled(l, style)])
+                        .collect();
+                    let pad = width.saturating_sub(spans_width(&lines[0]) + note_width);
+                    lines[0].push(Span::raw(" ".repeat(pad)));
+                    lines[0].push(Span::styled(note.clone(), dim));
+                    lines
+                }
+                _ => {
+                    let mut lines: Vec<Vec<Span>> =
+                        wrap(&text, *width).into_iter().map(|l| vec![Span::styled(l, style)]).collect();
+                    if let Some(note) = &note {
+                        let last = lines.last_mut().unwrap();
+                        if spans_width(last) + 1 + text_width(note) <= *width {
+                            last.push(Span::styled(format!(" {}", note), dim));
+                        } else {
+                            lines.push(vec![Span::styled(note.clone(), dim)]);
+                        }
+                    }
+                    lines
+                }
+            }
+        })
+        .collect();
 
-    let height = cells.iter().map(|c| c.lines.len()).max().unwrap_or(1);
+    let marker = match () {
+        _ if !app.has_children(row.item) => "",
+        _ if app.collapsed.contains(&row.item) => "▸",
+        _ => "▾",
+    };
+
+    let height = columns.iter().map(|c| c.len()).max().unwrap_or(1);
     (0..height)
         .map(|i| {
-            let mut spans = vec![];
-            for cell in &cells {
-                spans.push(Span::raw(" "));
-                let content = cell.lines.get(i).cloned().unwrap_or_default();
-                let content_width = spans_width(&content);
-                let pad = cell.width.saturating_sub(content_width);
-                let (left, right) = if cell.center { (pad / 2, pad - pad / 2) } else { (0, pad) };
-                spans.push(Span::raw(" ".repeat(left)));
+            let mut spans = vec![Span::raw(" ".repeat(indent(row.depth)))];
+            let marker = if i == 0 { marker } else { "" };
+            spans.push(Span::styled(format!("{:<width$}", marker, width = MARKER_WIDTH), dim));
+            for (lines, (_, _, width)) in columns.iter().zip(&cells) {
+                let content = lines.get(i).cloned().unwrap_or_default();
+                let pad = width.saturating_sub(spans_width(&content));
                 spans.extend(content);
-                spans.push(Span::raw(" ".repeat(right)));
-                spans.push(Span::raw(" "));
+                spans.push(Span::raw(" ".repeat(pad + 1)));
             }
             Line::from(spans)
         })
@@ -463,11 +498,15 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
         if dimmed {
             style = style.fg(DIM);
         }
-        if highlighted == Some(index) {
-            style = if focused { style.bg(SELECTED_LINE) } else { style.add_modifier(Modifier::BOLD) };
+        // the selected line reads in any theme: reversed, in plain colors
+        let selected = (highlighted == Some(index) && focused) || onto == Some(row.item);
+        if selected {
+            style = Style::new().add_modifier(Modifier::REVERSED);
+        } else if highlighted == Some(index) {
+            style = style.add_modifier(Modifier::BOLD);
         }
         if onto == Some(row.item) {
-            style = style.bg(SELECTED_LINE).add_modifier(Modifier::UNDERLINED).underline_color(Color::Red);
+            style = style.add_modifier(Modifier::UNDERLINED).underline_color(Color::Red);
         }
 
         let top = y;
@@ -479,8 +518,10 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
             let rect = Rect::new(inner.x, y, inner.width, 1);
             buf.set_style(rect, style);
             let mut line = line.clone();
-            if dimmed {
-                for span in &mut line.spans {
+            for span in &mut line.spans {
+                if selected {
+                    span.style = Style::new();
+                } else if dimmed {
                     span.style = span.style.fg(DIM);
                 }
             }
@@ -547,7 +588,7 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
         Bar::Sort { options, selected, .. } => {
             let mut spans = vec![Span::styled("Sort by:", Style::new().fg(OPTIONS))];
             for (i, option) in options.iter().enumerate() {
-                let style = if i == *selected { Style::new().bg(SELECTED_LINE) } else { Style::new() };
+                let style = if i == *selected { Style::new().add_modifier(Modifier::REVERSED) } else { Style::new() };
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(format!(" {} ", option.name()), style));
             }

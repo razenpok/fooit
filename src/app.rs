@@ -81,27 +81,31 @@ pub struct Row {
 
 /// Columns a row is indented by at a depth
 pub fn indent(depth: usize) -> usize {
-    if depth > 0 { 2 * depth + 2 } else { 0 }
+    2 * depth
 }
 
-/// Each column of a row at a depth: its field, where its cell starts (from the tree's left
-/// edge) and the width of its content, which sits one column in from the cell's start
+/// Columns before a row's cells, after its indent, for the expand marker of items with children
+pub const MARKER_WIDTH: usize = 2;
+
+/// Each column of a row at a depth: its field, where its content starts (from the tree's left
+/// edge) and its width. Columns are one space apart, with a space after the last one
 pub fn row_cells(columns: &[(Field, usize)], depth: usize, total: usize) -> Vec<(Field, usize, usize)> {
+    let start = indent(depth) + MARKER_WIDTH;
     let fixed: usize = columns
         .iter()
         .filter(|(f, _)| *f != Field::Description)
-        .map(|(_, w)| w + 2)
+        .map(|(_, w)| w + 1)
         .sum::<usize>()
-        + indent(depth);
-    let description = total.saturating_sub(fixed + 2).max(1);
+        + start;
+    let description = total.saturating_sub(fixed + 1).max(1);
 
-    let mut x = indent(depth);
+    let mut x = start;
     columns
         .iter()
         .map(|(field, width)| {
             let width = if *field == Field::Description { description } else { *width };
             let cell = (*field, x, width);
-            x += width + 2;
+            x += width + 1;
             cell
         })
         .collect()
@@ -644,6 +648,11 @@ impl App {
         if self.cell_at(tree, depth, x).is_some_and(|(field, _, _)| field == Field::Status) {
             return self.run(Action::ToggleComplete);
         }
+        let marker = self.tree(tree).unwrap().view.area.x + indent(depth) as u16;
+        if (marker..marker + MARKER_WIDTH as u16).contains(&x) && self.has_children(item) {
+            self.toggle_expand_item(item);
+            return Ok(());
+        }
 
         self.drag = Some(Drag { tree, item, start: (x, y), target: None, onto: None, moved: false });
         Ok(())
@@ -655,8 +664,7 @@ impl App {
         row_cells(&view.columns, depth, view.area.width as usize)
             .into_iter()
             .map(|(field, start, width)| (field, view.area.x + start as u16, width))
-            .find(|(_, start, width)| (*start..start + *width as u16 + 2).contains(&x))
-            .map(|(field, start, width)| (field, start + 1, width))
+            .find(|(_, start, width)| (*start..start + *width as u16 + 1).contains(&x))
     }
 
     /// Start editing the clicked column of a todo, with the cursor where the click was
@@ -1123,7 +1131,30 @@ impl App {
         self.refresh_all();
     }
 
-    fn is_completed(&self, item: Item) -> bool {
+    pub fn has_children(&self, item: Item) -> bool {
+        !self.db.children(item.as_parent(), item.is_todo()).is_empty()
+    }
+
+    /// Completed and all children of a todo
+    pub fn progress(&self, item: Item) -> (usize, usize) {
+        let children = self.db.children(item.as_parent(), true);
+        let done = children.iter().filter(|c| self.is_completed(**c)).count();
+        (done, children.len())
+    }
+
+    /// Open todos in a workspace, nested ones included
+    pub fn open_todos(&self, ws: Item) -> usize {
+        fn count(app: &App, parent: Parent) -> usize {
+            app.db
+                .children(parent, true)
+                .into_iter()
+                .map(|t| usize::from(!app.is_completed(t)) + count(app, t.as_parent()))
+                .sum()
+        }
+        count(self, ws.as_parent())
+    }
+
+    pub fn is_completed(&self, item: Item) -> bool {
         match item {
             Item::Todo(id) => self.db.todo(id).is_some_and(|t| !t.pending),
             Item::Ws(_) => false,
