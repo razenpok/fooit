@@ -261,16 +261,8 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     }
 }
 
-/// Whether a pending todo is past its due date. One without a time is due by the end of
-/// its day, rather than from midnight on as dooit has it
 fn overdue(todo: &crate::db::Todo) -> bool {
-    let now = crate::dates::now();
-    match todo.due {
-        _ if !todo.pending => false,
-        Some(due) if due.hour() == 0 && due.minute() == 0 => due.date() < now.date(),
-        Some(due) => due < now,
-        None => false,
-    }
+    crate::dates::is_overdue(todo.due, todo.pending)
 }
 
 /// A due date relative to now: today, tomorrow, a weekday within the week, otherwise the date
@@ -362,13 +354,24 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
     let dim = Style::new().fg(DIM);
 
     // a dim note after the description: done and all children of a todo, open todos of a workspace
-    let note = match row.item {
+    let note: Option<Vec<Span<'static>>> = match row.item {
         _ if editing || is_draft(row.item) => None,
         // in Today, the workspace each todo comes from
-        Item::Todo(_) if is_gathered(tree) => app.workspace_of(row.item).map(|ws| format!("#{}", app.db.description(ws))),
-        _ if row.item == TODAY_ROW => Some(app.due_today()).filter(|due| *due > 0).map(|due| due.to_string()),
-        Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| format!("{}/{}", done, all)),
-        Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| open.to_string()),
+        Item::Todo(_) if is_gathered(tree) => app.workspace_of(row.item).map(|ws| format!("#{}", app.db.description(ws))).map(|n| vec![Span::styled(n, dim)]),
+        // overdue in red, then what is due later today
+        _ if row.item == TODAY_ROW => {
+            let (overdue, today) = app.due_today();
+            let mut spans = vec![];
+            if overdue > 0 {
+                spans.push(Span::styled(format!("!{}", overdue), Style::new().fg(Color::Red)));
+            }
+            if today > 0 {
+                spans.push(Span::styled(format!("{}{}", if overdue > 0 { " " } else { "" }, today), dim));
+            }
+            Some(spans).filter(|s| !s.is_empty())
+        }
+        Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| vec![Span::styled(format!("{}/{}", done, all), dim)]),
+        Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| vec![Span::styled(open.to_string(), dim)]),
     };
 
     let columns: Vec<Vec<Vec<Span<'static>>>> = cells
@@ -384,14 +387,14 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
             match &note {
                 // a workspace's count sits at the right edge of its first line
                 Some(note) if !tree.is_todos() => {
-                    let note_width = text_width(note);
+                    let note_width = spans_width(note);
                     let mut lines: Vec<Vec<Span>> = wrap(&text, width.saturating_sub(note_width + 1).max(1))
                         .into_iter()
                         .map(|l| vec![Span::styled(l, style)])
                         .collect();
                     let pad = width.saturating_sub(spans_width(&lines[0]) + note_width);
                     lines[0].push(Span::raw(" ".repeat(pad)));
-                    lines[0].push(Span::styled(note.clone(), dim));
+                    lines[0].extend(note.iter().cloned());
                     lines
                 }
                 _ => {
@@ -399,10 +402,11 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
                         wrap(&text, *width).into_iter().map(|l| vec![Span::styled(l, style)]).collect();
                     if let Some(note) = &note {
                         let last = lines.last_mut().unwrap();
-                        if spans_width(last) + 1 + text_width(note) <= *width {
-                            last.push(Span::styled(format!(" {}", note), dim));
+                        if spans_width(last) + 1 + spans_width(note) <= *width {
+                            last.push(Span::raw(" "));
+                            last.extend(note.iter().cloned());
                         } else {
-                            lines.push(vec![Span::styled(note.clone(), dim)]);
+                            lines.push(note.clone());
                         }
                     }
                     lines

@@ -558,9 +558,12 @@ impl App {
     }
 
     /// Open todos due today or before, in every workspace
-    pub fn due_today(&self) -> usize {
+    /// Open todos that are overdue, and that are due later today, in every workspace
+    pub fn due_today(&self) -> (usize, usize) {
         let today = dates::now().date();
-        self.db.todos.values().filter(|t| t.pending && t.due.is_some_and(|d| d.date() <= today)).count()
+        let due: Vec<_> = self.db.todos.values().filter(|t| t.pending && t.due.is_some_and(|d| d.date() <= today)).collect();
+        let overdue = due.iter().filter(|t| dates::is_overdue(t.due, t.pending)).count();
+        (overdue, due.len() - overdue)
     }
 
     /// The workspace a todo is in, however deep

@@ -405,6 +405,18 @@ pub fn parse_due(value: &str) -> Option<NaiveDateTime> {
     parsed.build()
 }
 
+/// Whether a pending todo is past its due date. One without a time is due by the end of its
+/// day, rather than from midnight on as dooit has it
+pub fn is_overdue(due: Option<NaiveDateTime>, pending: bool) -> bool {
+    let now = now();
+    match due {
+        _ if !pending => false,
+        Some(due) if due.hour_() == 0 && due.minute_() == 0 => due.date() < now.date(),
+        Some(due) => due < now,
+        None => false,
+    }
+}
+
 /// A due date as a time from now: `30m`, `5h`, `1d`, `2w` or several, like `1d 5h`, optionally
 /// after `in` or `+`. Only days and weeks give a date without a time (`1d` is tomorrow);
 /// with hours or minutes it is that moment

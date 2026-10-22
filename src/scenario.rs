@@ -823,6 +823,8 @@ fn today_lists_what_is_due_across_workspaces() {
     press(&mut app, "gg");
     let s = screen(&mut term, &mut app, "today row");
     assert!(s.contains("Today") && app.current_ws() == Some(app::TODAY_ID));
+    // one overdue, one due later today
+    assert!(s.contains("!1 1"), "{s}");
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.mode, app::Mode::Normal);
     assert_eq!(descriptions(&app), ["report", "laundry"]);
