@@ -407,7 +407,7 @@ impl App {
                 let completed = w.app.is_completed(child);
                 let kept = completed && w.kept.contains(&child);
                 if !completed || w.app.show_completed || in_kept || kept {
-                    let enabled = w.app.db.description(child).contains(w.filter);
+                    let enabled = w.app.db.description(child).to_lowercase().contains(w.filter);
                     w.rows.push(Row { item: child, depth, enabled });
                     if !w.app.collapsed.contains(&child) || !w.filter.is_empty() {
                         walk(w, child.as_parent(), depth + 1, in_kept || kept);
@@ -422,6 +422,8 @@ impl App {
                 w.rows.push(draft_row(d));
             }
         }
+        // search ignores case
+        let filter = filter.to_lowercase();
         let mut w = Walk { app: self, todos, filter: &filter, kept: &kept, draft, rows: vec![] };
         if let Some(root) = root {
             walk(&mut w, root, 0, false);

@@ -789,8 +789,13 @@ mod scenario {
         let s = screen(&mut term, &mut app, "no such column");
         assert!(s.contains("No such column: recurrence"));
 
-        // search
-        press(&mut app, "/Sec");
+        // search, ignoring case
+        press(&mut app, "/sEC");
+        assert!(app.tree(app.focused_tree()).unwrap().rows.iter().any(|r| r.enabled && app.db.description(r.item) == "Second todo"));
+        for _ in 0..3 {
+            key(&mut app, KeyCode::Backspace);
+        }
+        press(&mut app, "Sec");
         let s = screen(&mut term, &mut app, "searching");
         assert!(s.contains("Search: Sec|") && app.mode == app::Mode::Search);
         key(&mut app, KeyCode::Esc);
