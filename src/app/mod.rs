@@ -904,12 +904,17 @@ impl App {
             }
             ("up" | "down", _) => {
                 // pick the target first, the edited item may be dropped when it stays empty
+                let new_at_bottom = key == "up" && self.at_top_of_todos(tree);
                 let target = self.sibling_target(tree, key == "down");
                 self.stop_edit(tree, false);
-                if let Some(item) = target {
-                    self.highlight_item(tree, item);
+                if new_at_bottom {
+                    self.add_last_item(tree)
+                } else {
+                    if let Some(item) = target {
+                        self.highlight_item(tree, item);
+                    }
+                    Ok(())
                 }
-                Ok(())
             }
             ("tab" | "shift+tab", _) => self.reindent_edit(tree, key == "tab"),
             _ => {

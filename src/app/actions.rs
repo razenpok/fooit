@@ -3,6 +3,13 @@
 use super::*;
 
 impl App {
+    /// Whether the cursor is on the first row of a workspace's todos
+    pub(super) fn at_top_of_todos(&self, tree: TreeRef) -> bool {
+        tree.is_todos()
+            && !is_gathered(tree)
+            && self.tree(tree).is_some_and(|t| t.highlighted.is_some() && t.highlighted == t.first_enabled())
+    }
+
     /// The row moving the cursor up or down lands on, wrapping around the ends of the list
     pub(super) fn move_target(&mut self, tree: TreeRef, down: bool) -> Option<Item> {
         let state = self.tree_mut(tree);
@@ -98,6 +105,8 @@ impl App {
                     self.focus = Focus::Workspaces;
                 }
             },
+            // up from the top of a workspace's todos goes round to adding one at the bottom
+            Action::MoveUp | Action::PreviousSibling if self.at_top_of_todos(tree) => self.add_last_item(tree)?,
             Action::MoveDown | Action::MoveUp => {
                 if let Some(item) = self.move_target(tree, action == Action::MoveDown) {
                     self.highlight_item(tree, item);

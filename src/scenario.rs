@@ -454,10 +454,25 @@ fn up_and_down_wrap_around() {
     assert_eq!(highlighted(&app), "two");
     press(&mut app, "j");
     assert_eq!(highlighted(&app), "one");
+
+    // up from the top goes round to adding a todo at the bottom, and down from there to the top
     key(&mut app, KeyCode::Up);
-    assert_eq!(highlighted(&app), "two");
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert_eq!(descriptions(&app), ["one", "two", ""]);
+    key(&mut app, KeyCode::Down);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(descriptions(&app), ["one", "two"]);
+    assert_eq!(highlighted(&app), "one");
+    press(&mut app, "k");
+    assert_eq!(app.mode, app::Mode::Insert);
+    key(&mut app, KeyCode::Esc);
 
     // also when leaving an edit with the arrows
+    press(&mut app, "ggi");
+    key(&mut app, KeyCode::Up);
+    assert_eq!(app.mode, app::Mode::Insert);
+    assert_eq!(descriptions(&app), ["one", "two", ""]);
+    key(&mut app, KeyCode::Esc);
     press(&mut app, "i");
     key(&mut app, KeyCode::Down);
     assert_eq!(app.mode, app::Mode::Normal);
@@ -838,13 +853,13 @@ fn find_in_all_workspaces() {
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
     key(&mut app, KeyCode::Left);
+    press(&mut app, "z");
     key(&mut app, KeyCode::Left);
     press(&mut app, "k");
     key(&mut app, KeyCode::Tab);
     press(&mut app, "order seeds");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
-    press(&mut app, "kz");
 
     // results come from every workspace, collapsed or not, as you type
     app.on_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));

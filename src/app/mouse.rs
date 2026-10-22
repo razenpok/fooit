@@ -20,8 +20,14 @@ impl App {
                 Ok(())
             }
             MouseEventKind::Up(MouseButton::Left) => self.mouse_up(),
-            MouseEventKind::ScrollDown if self.mode == Mode::Normal => self.run(Action::MoveDown),
-            MouseEventKind::ScrollUp if self.mode == Mode::Normal => self.run(Action::MoveUp),
+            // the wheel only moves the cursor, wrapping around without adding anything
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp if self.mode == Mode::Normal => {
+                let tree = self.focused_tree();
+                if let Some(item) = self.move_target(tree, event.kind == MouseEventKind::ScrollDown) {
+                    self.highlight_item(tree, item);
+                }
+                Ok(())
+            }
             _ => Ok(()),
         };
         if let Err(e) = result {
