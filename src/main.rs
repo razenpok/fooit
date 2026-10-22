@@ -51,7 +51,54 @@ enum Command {
     ConfigLoc,
     /// Print the current key bindings as a keys file, to start one from.
     Keys,
+    /// Share workspaces through the sync server, and add shares from others.
+    Share {
+        #[command(subcommand)]
+        action: ShareCommand,
+    },
+    /// Sync now, and say how it went.
+    Sync,
 }
+
+#[derive(Subcommand)]
+enum ShareCommand {
+    /// Make a share holding some workspaces, and print its link.
+    New {
+        name: String,
+        #[arg(required = true)]
+        workspaces: Vec<String>,
+    },
+    /// Put workspaces in a share.
+    Add {
+        share: String,
+        #[arg(required = true)]
+        workspaces: Vec<String>,
+    },
+    /// Take workspaces out of a share. Its people keep what they have and get nothing new.
+    Remove {
+        share: String,
+        #[arg(required = true)]
+        workspaces: Vec<String>,
+    },
+    /// Print the link of a share, to give to the people (or machines) it is for.
+    Link { share: String },
+    /// List the shares here, with their workspaces.
+    List,
+    /// Add a share from its link; its workspaces come in with it.
+    Import {
+        link: String,
+        /// What to call the share here
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Forget a share here. Workspaces that no other share holds stop syncing and stay.
+    Leave { share: String },
+    /// Call a share something else, here only.
+    Rename { share: String, name: String },
+}
+
+/// The words that start a command, so a mistyped command is not added as a todo
+const COMMANDS: &[&str] = &["config-loc", "keys", "share", "sync", "help"];
 
 fn keys_file(cli: &Cli) -> PathBuf {
     match &cli.config {
@@ -122,12 +169,19 @@ fn main() {
             // anything that is not an option or command is a new task
             let task = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
             let task = task.trim();
-            if task.is_empty() || matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+            let first = std::env::args().nth(1).unwrap_or_default();
+            if task.is_empty()
+                || matches!(e.kind(), ErrorKind::DisplayHelp | ErrorKind::DisplayVersion)
+                || COMMANDS.contains(&first.as_str())
+            {
                 e.exit();
             }
             // `--db` is not read here, as anything that fails to parse ends up here
-            match open_db(None).and_then(|mut db| add_task(&mut db, task)) {
-                Ok(ws) => println!("Added \"{}\" to {}", task, ws),
+            match open_db(None).and_then(|mut db| add_task(&mut db, task).map(|ws| (db, ws))) {
+                Ok((db, ws)) => {
+                    println!("Added \"{}\" to {}", task, ws);
+                    sync_quietly(&db);
+                }
                 Err(e) => {
                     eprintln!("{}", e);
                     std::process::exit(1);
@@ -159,6 +213,21 @@ fn main() {
         return;
     }
 
+    if let Some(command @ (Command::Share { .. } | Command::Sync)) = &cli.command {
+        if let Err(e) = run_sync_command(command, cli.db.as_deref()) {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    let db_file = match db_path(cli.db.as_deref()) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
     let db = match open_db(cli.db.as_deref()) {
         Ok(db) => db,
         Err(e) => {
@@ -169,11 +238,139 @@ fn main() {
 
     let mut app = app::App::new(db);
     app.keys = keys;
+    match sync::Config::load() {
+        Ok(config) => {
+            let wanted = sync::open(&db_file).and_then(|c| sync::has_logs(&c)).unwrap_or(false);
+            if wanted {
+                app.sync = Some(sync::spawn(db_file, config));
+            }
+        }
+        Err(e) => eprintln!("{}", e),
+    }
     app.start();
     if let Err(e) = run(app) {
         eprintln!("{}", e);
         std::process::exit(1);
     }
+}
+
+/// A workspace by name, as with `#name` when adding a todo
+fn find_workspace(db: &db::Db, name: &str) -> Result<String, String> {
+    let tag = format!("#{}", name.replace(' ', ""));
+    match db.workspace_tag(&tag) {
+        (_, Some(id)) => Ok(db.workspaces[&id].uid.clone()),
+        _ => Err(format!("No workspace called \"{}\"", name)),
+    }
+}
+
+/// Push a change made from the command line straight away, when anything is synced
+fn sync_quietly(db: &db::Db) {
+    let Ok(config) = sync::Config::load() else { return };
+    let Ok(mut conn) = sync::open(db.path()) else { return };
+    if sync::has_logs(&conn).unwrap_or(false) {
+        let report = sync::sync_all(&mut conn, &|e| config.remote(e));
+        for e in report.errors {
+            eprintln!("Sync: {}", e);
+        }
+    }
+}
+
+fn run_sync_command(command: &Command, cli_db: Option<&str>) -> Result<(), String> {
+    let db = open_db(cli_db)?;
+    let config = sync::Config::load()?;
+    let mut conn = sync::open(db.path())?;
+    let names = |conn: &rusqlite::Connection, uids: &[String]| -> Vec<String> {
+        uids.iter().map(|u| sync::workspace_name(conn, u)).collect()
+    };
+    let sync_now = |conn: &mut rusqlite::Connection| -> Result<sync::Report, String> {
+        let report = sync::sync_all(conn, &|e| config.remote(e));
+        if report.errors.is_empty() { Ok(report) } else { Err(report.errors.join("\n")) }
+    };
+
+    let Command::Share { action } = command else {
+        if !sync::has_logs(&conn)? {
+            return Err("Nothing is synced yet; start with `fooit share new NAME WORKSPACE...`".into());
+        }
+        let report = sync_now(&mut conn)?;
+        println!(
+            "Synced{}",
+            match (report.pulled, report.pushed) {
+                (true, true) => ": sent and got changes",
+                (true, false) => ": got changes",
+                (false, true) => ": sent changes",
+                (false, false) => ", nothing new",
+            }
+        );
+        return Ok(());
+    };
+
+    match action {
+        ShareCommand::New { name, workspaces } => {
+            let endpoint = config.require_url()?.to_string();
+            let uids = workspaces.iter().map(|w| find_workspace(&db, w)).collect::<Result<Vec<_>, _>>()?;
+            let remote = config.remote(&endpoint);
+            let share = sync::share::create(&conn, remote.as_ref(), name, &endpoint, &uids)?;
+            println!("Shared {} as \"{}\". Its link:\n", names(&conn, &uids).join(", "), share.name);
+            println!("  {}\n", sync::crypto::link(&endpoint, &share.secret));
+            println!("Anyone with the link can read and change these workspaces. On another machine:");
+            println!("  fooit share import '<link>'");
+        }
+        ShareCommand::Add { share, workspaces } => {
+            let share = sync::share::find(&conn, share)?;
+            let remote = config.remote(&share.endpoint);
+            let uids = workspaces.iter().map(|w| find_workspace(&db, w)).collect::<Result<Vec<_>, _>>()?;
+            for uid in &uids {
+                sync::share::add_member(&conn, remote.as_ref(), &share, uid)?;
+            }
+            sync_now(&mut conn)?;
+            println!("Added {} to \"{}\"", names(&conn, &uids).join(", "), share.name);
+        }
+        ShareCommand::Remove { share, workspaces } => {
+            let share = sync::share::find(&conn, share)?;
+            let remote = config.remote(&share.endpoint);
+            let uids = workspaces.iter().map(|w| find_workspace(&db, w)).collect::<Result<Vec<_>, _>>()?;
+            // send what changed to the old log first
+            sync_now(&mut conn)?;
+            for uid in &uids {
+                sync::share::remove_member(&conn, remote.as_ref(), &share, uid)?;
+            }
+            sync_now(&mut conn)?;
+            println!("Took {} out of \"{}\"", names(&conn, &uids).join(", "), share.name);
+        }
+        ShareCommand::Link { share } => {
+            let share = sync::share::find(&conn, share)?;
+            println!("{}", sync::crypto::link(&share.endpoint, &share.secret));
+        }
+        ShareCommand::List => {
+            let shares = sync::share::shares(&conn)?;
+            if shares.is_empty() {
+                println!("No shares yet; make one with `fooit share new NAME WORKSPACE...`");
+            }
+            for share in shares {
+                let members = sync::share::members(&conn, share.id)?;
+                println!("{}: {}", share.name, names(&conn, &members).join(", "));
+            }
+        }
+        ShareCommand::Import { link, name } => {
+            let share = sync::share::import(&conn, link, name.as_deref())?;
+            if let Err(e) = sync_now(&mut conn) {
+                sync::share::forget(&conn, &share)?;
+                return Err(e);
+            }
+            let members = sync::share::members(&conn, share.id)?;
+            println!("Added the share \"{}\": {}", share.name, names(&conn, &members).join(", "));
+        }
+        ShareCommand::Leave { share } => {
+            let share = sync::share::find(&conn, share)?;
+            sync::share::forget(&conn, &share)?;
+            println!("Left \"{}\"; its workspaces stay here", share.name);
+        }
+        ShareCommand::Rename { share, name } => {
+            let share = sync::share::find(&conn, share)?;
+            sync::share::rename(&conn, &share, name)?;
+        }
+    }
+    Ok(())
 }
 
 fn run(mut app: app::App) -> std::io::Result<()> {

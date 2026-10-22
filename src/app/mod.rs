@@ -7,6 +7,7 @@ use crate::keys::{self, Action, KeyManager, KeyMatch};
 use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod actions;
@@ -331,6 +332,9 @@ pub struct App {
     ws_clipboard: Option<Item>,
     todo_clipboard: Option<Item>,
     last_poll: Instant,
+    /// What the background sync last did, when it runs
+    pub sync: Option<Arc<Mutex<crate::sync::Status>>>,
+    sync_error: Option<String>,
 }
 
 impl App {
@@ -361,6 +365,8 @@ impl App {
             ws_clipboard: None,
             todo_clipboard: None,
             last_poll: Instant::now(),
+            sync: None,
+            sync_error: None,
         };
         app.refresh_all();
         app
@@ -745,6 +751,15 @@ impl App {
 
         if self.last_poll.elapsed() >= Duration::from_secs(1) {
             self.last_poll = Instant::now();
+            // a sync problem shows once, until it changes
+            let error = self.sync.as_ref().and_then(|s| s.lock().ok().and_then(|s| s.error.clone()));
+            if error != self.sync_error {
+                if let Some(e) = &error {
+                    self.notify(format!("Sync: {}", e), Level::Warning);
+                    changed = true;
+                }
+                self.sync_error = error;
+            }
             if self.db.has_changed() {
                 self.refresh_all();
                 // changes made elsewhere are not ours to undo

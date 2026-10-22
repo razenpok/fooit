@@ -215,6 +215,8 @@ pub struct Db {
 
     pub workspaces: HashMap<i64, Workspace>,
     pub todos: HashMap<i64, Todo>,
+    /// The uids of the workspaces that are synced
+    pub synced: HashSet<String>,
     ws_children: HashMap<Option<i64>, Vec<i64>>,
     todo_children: HashMap<Parent, Vec<i64>>,
 }
@@ -340,6 +342,7 @@ impl Db {
             generation: 0,
             workspaces: HashMap::new(),
             todos: HashMap::new(),
+            synced: HashSet::new(),
             ws_children: HashMap::new(),
             todo_children: HashMap::new(),
         };
@@ -368,6 +371,10 @@ impl Db {
             .map_err(err)
     }
 
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     fn modified(&self) -> Option<SystemTime> {
         std::fs::metadata(&self.path).and_then(|m| m.modified()).ok()
     }
@@ -385,6 +392,11 @@ impl Db {
 
     pub fn load(&mut self) -> Result<()> {
         let (workspaces, todos) = read_rows(&self.conn)?;
+        let synced = {
+            let mut stmt = self.conn.prepare("SELECT ws_uid FROM sync_link").map_err(err)?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(err)?;
+            rows.collect::<std::result::Result<HashSet<_>, _>>().map_err(err)?
+        };
 
         let mut ws_children: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
         for w in workspaces.values() {
@@ -414,6 +426,7 @@ impl Db {
 
         self.workspaces = workspaces;
         self.todos = todos;
+        self.synced = synced;
         self.ws_children = ws_children;
         self.todo_children = todo_children;
         self.generation += 1;
@@ -445,6 +458,10 @@ impl Db {
             Item::Ws(id) => self.workspaces.contains_key(&id),
             Item::Todo(id) => self.todos.contains_key(&id),
         }
+    }
+
+    pub fn is_synced(&self, item: Item) -> bool {
+        matches!(item, Item::Ws(id) if self.workspaces.get(&id).is_some_and(|w| self.synced.contains(&w.uid)))
     }
 
     pub fn description(&self, item: Item) -> &str {

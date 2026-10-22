@@ -375,7 +375,18 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
         }
         _ if row.item == UPCOMING_ROW => Some(app.due_upcoming()).filter(|n| *n > 0).map(|n| vec![Span::styled(n.to_string(), dim)]),
         Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| vec![Span::styled(format!("{}/{}", done, all), dim)]),
-        Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| vec![Span::styled(open.to_string(), dim)]),
+        Item::Ws(_) => {
+            let open = app.open_todos(row.item);
+            let mut spans = vec![];
+            if open > 0 {
+                spans.push(Span::styled(open.to_string(), dim));
+            }
+            // synced, see `fooit share`
+            if app.db.is_synced(row.item) {
+                spans.push(Span::styled(format!("{}⇅", if open > 0 { " " } else { "" }), dim));
+            }
+            Some(spans).filter(|s| !s.is_empty())
+        }
     };
 
     let columns: Vec<Vec<Vec<Span<'static>>>> = cells

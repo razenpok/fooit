@@ -6,8 +6,6 @@ use super::crypto::Secret;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Mutex;
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -79,7 +77,8 @@ mod b64_opt {
     }
 }
 
-pub fn now_ms() -> u64 {
+#[cfg(test)]
+fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
@@ -162,98 +161,108 @@ impl Remote for Http {
 
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
-struct MemoryLog {
-    auth_hash: String,
-    base_seq: u64,
-    base: Vec<u8>,
-    batches: Vec<SealedBatch>,
-}
+#[cfg(test)]
+pub use memory::Memory;
 
-impl MemoryLog {
-    fn head(&self) -> u64 {
-        self.batches.last().map_or(self.base_seq, |b| b.seq)
-    }
-}
+#[cfg(test)]
+mod memory {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
-/// A server in memory, with the same rules as the Worker
-#[derive(Default)]
-pub struct Memory {
-    logs: Mutex<HashMap<String, MemoryLog>>,
-    /// Added to the clock, to test what happens to old batches
-    pub clock_offset_ms: Mutex<u64>,
-}
-
-impl Memory {
-    fn now(&self) -> u64 {
-        now_ms() + *self.clock_offset_ms.lock().unwrap()
+    #[derive(Default)]
+    struct MemoryLog {
+        auth_hash: String,
+        base_seq: u64,
+        base: Vec<u8>,
+        batches: Vec<SealedBatch>,
     }
 
-    fn with_log<T>(&self, secret: &Secret, f: impl FnOnce(&mut MemoryLog) -> T) -> Result<Option<T>> {
-        let mut logs = self.logs.lock().unwrap();
-        match logs.get_mut(&secret.log_id()) {
-            None => Ok(None),
-            Some(log) if log.auth_hash != secret.auth_hash() => Err("The sync server refused the secret".into()),
-            Some(log) => Ok(Some(f(log))),
+    impl MemoryLog {
+        fn head(&self) -> u64 {
+            self.batches.last().map_or(self.base_seq, |b| b.seq)
         }
     }
 
-    pub fn batch_count(&self, secret: &Secret) -> usize {
-        self.logs.lock().unwrap().get(&secret.log_id()).map_or(0, |l| l.batches.len())
+    /// A server in memory, with the same rules as the Worker
+    #[derive(Default)]
+    pub struct Memory {
+        logs: Mutex<HashMap<String, MemoryLog>>,
+        /// Added to the clock, to test what happens to old batches
+        pub clock_offset_ms: Mutex<u64>,
     }
-}
 
-impl Remote for Memory {
-    fn create(&self, secret: &Secret, base: &[u8]) -> Result<()> {
-        let mut logs = self.logs.lock().unwrap();
-        if logs.contains_key(&secret.log_id()) {
-            return Err("That log exists already".into());
+    impl Memory {
+        fn now(&self) -> u64 {
+            now_ms() + *self.clock_offset_ms.lock().unwrap()
         }
-        logs.insert(
-            secret.log_id(),
-            MemoryLog { auth_hash: secret.auth_hash(), base_seq: 0, base: base.to_vec(), batches: vec![] },
-        );
-        Ok(())
+
+        fn with_log<T>(&self, secret: &Secret, f: impl FnOnce(&mut MemoryLog) -> T) -> Result<Option<T>> {
+            let mut logs = self.logs.lock().unwrap();
+            match logs.get_mut(&secret.log_id()) {
+                None => Ok(None),
+                Some(log) if log.auth_hash != secret.auth_hash() => Err("The sync server refused the secret".into()),
+                Some(log) => Ok(Some(f(log))),
+            }
+        }
+
+        pub fn batch_count(&self, secret: &Secret) -> usize {
+            self.logs.lock().unwrap().get(&secret.log_id()).map_or(0, |l| l.batches.len())
+        }
     }
 
-    fn pull(&self, secret: &Secret, since: Option<u64>) -> Result<Option<Pull>> {
-        let now = self.now();
-        self.with_log(secret, |log| {
-            let full = since.is_none_or(|s| s < log.base_seq);
-            let since = if full { log.base_seq } else { since.unwrap() };
-            Pull {
-                head: log.head(),
-                base_seq: log.base_seq,
-                base: full.then(|| log.base.clone()),
-                batches: log.batches.iter().filter(|b| b.seq > since).cloned().collect(),
-                oldest_age: log.batches.first().map(|b| now.saturating_sub(b.time)),
+    impl Remote for Memory {
+        fn create(&self, secret: &Secret, base: &[u8]) -> Result<()> {
+            let mut logs = self.logs.lock().unwrap();
+            if logs.contains_key(&secret.log_id()) {
+                return Err("That log exists already".into());
             }
-        })
-    }
+            logs.insert(
+                secret.log_id(),
+                MemoryLog { auth_hash: secret.auth_hash(), base_seq: 0, base: base.to_vec(), batches: vec![] },
+            );
+            Ok(())
+        }
 
-    fn push(&self, secret: &Secret, expected: u64, data: &[u8]) -> Result<Push> {
-        let now = self.now();
-        self.with_log(secret, |log| {
-            if log.head() != expected {
-                return Push::Behind;
-            }
-            let seq = expected + 1;
-            log.batches.push(SealedBatch { seq, data: data.to_vec(), time: now });
-            Push::Done(seq)
-        })?
-        .ok_or_else(|| "No such log on the sync server".to_string())
-    }
+        fn pull(&self, secret: &Secret, since: Option<u64>) -> Result<Option<Pull>> {
+            let now = self.now();
+            self.with_log(secret, |log| {
+                let full = since.is_none_or(|s| s < log.base_seq);
+                let since = if full { log.base_seq } else { since.unwrap() };
+                Pull {
+                    head: log.head(),
+                    base_seq: log.base_seq,
+                    base: full.then(|| log.base.clone()),
+                    batches: log.batches.iter().filter(|b| b.seq > since).cloned().collect(),
+                    oldest_age: log.batches.first().map(|b| now.saturating_sub(b.time)),
+                }
+            })
+        }
 
-    fn compact(&self, secret: &Secret, seq: u64, data: &[u8]) -> Result<bool> {
-        self.with_log(secret, |log| {
-            if seq <= log.base_seq || seq > log.head() {
-                return false;
-            }
-            log.base_seq = seq;
-            log.base = data.to_vec();
-            log.batches.retain(|b| b.seq > seq);
-            true
-        })?
-        .ok_or_else(|| "No such log on the sync server".to_string())
+        fn push(&self, secret: &Secret, expected: u64, data: &[u8]) -> Result<Push> {
+            let now = self.now();
+            self.with_log(secret, |log| {
+                if log.head() != expected {
+                    return Push::Behind;
+                }
+                let seq = expected + 1;
+                log.batches.push(SealedBatch { seq, data: data.to_vec(), time: now });
+                Push::Done(seq)
+            })?
+            .ok_or_else(|| "No such log on the sync server".to_string())
+        }
+
+        fn compact(&self, secret: &Secret, seq: u64, data: &[u8]) -> Result<bool> {
+            self.with_log(secret, |log| {
+                if seq <= log.base_seq || seq > log.head() {
+                    return false;
+                }
+                log.base_seq = seq;
+                log.base = data.to_vec();
+                log.batches.retain(|b| b.seq > seq);
+                true
+            })?
+            .ok_or_else(|| "No such log on the sync server".to_string())
+        }
     }
 }
