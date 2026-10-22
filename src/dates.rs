@@ -385,6 +385,9 @@ pub fn parse_due(value: &str) -> Option<NaiveDateTime> {
     if value.is_empty() {
         return None;
     }
+    if let Some(due) = parse_from_now(value) {
+        return Some(due);
+    }
 
     let mut parsed = Parsed::default();
     let mut any = false;
@@ -400,6 +403,33 @@ pub fn parse_due(value: &str) -> Option<NaiveDateTime> {
         return None;
     }
     parsed.build()
+}
+
+/// A due date as a time from now: `30m`, `5h`, `1d`, `2w` or several, like `1d 5h`, optionally
+/// after `in` or `+`. Only days and weeks give a date without a time (`1d` is tomorrow);
+/// with hours or minutes it is that moment
+fn parse_from_now(value: &str) -> Option<NaiveDateTime> {
+    let value = value.strip_prefix("in ").unwrap_or(value).trim_start_matches('+').trim();
+    let mut total = Duration::zero();
+    let mut timed = false;
+    for token in value.split_whitespace() {
+        let token = token.trim_start_matches('+').to_lowercase();
+        let unit = token.chars().last().filter(char::is_ascii)?;
+        let amount: i64 = token[..token.len() - 1].parse().ok()?;
+        total += match unit {
+            'm' => Duration::try_minutes(amount)?,
+            'h' => Duration::try_hours(amount)?,
+            'd' => Duration::try_days(amount)?,
+            'w' => Duration::try_weeks(amount)?,
+            _ => return None,
+        };
+        timed |= matches!(unit, 'm' | 'h');
+    }
+    if timed {
+        Some(now() + total)
+    } else {
+        Some((now().date() + total).and_hms_opt(0, 0, 0)?)
+    }
 }
 
 /// What a new todo's text asks for: an urgency as `!1` to `!4` anywhere, and a due date in its
@@ -459,6 +489,20 @@ fn is_date_phrase(words: &[&str]) -> bool {
 mod tests {
     use super::*;
     use chrono::Timelike;
+
+    #[test]
+    fn due_from_now() {
+        let today = now().date();
+        assert_eq!(parse_due("1d").unwrap(), (today + Duration::days(1)).and_hms_opt(0, 0, 0).unwrap());
+        assert_eq!(parse_due("in 2w").unwrap().date(), today + Duration::weeks(2));
+        let later = parse_due("1d 5h").unwrap() - now();
+        assert!((later - Duration::hours(29)).num_seconds().abs() < 5);
+        let soon = parse_due("+30m").unwrap() - now();
+        assert!((soon - Duration::minutes(30)).num_seconds().abs() < 5);
+        // dates still read as before
+        assert_eq!(parse_due("2024-05-06").unwrap().date(), NaiveDate::from_ymd_opt(2024, 5, 6).unwrap());
+        assert!(parse_from_now("5x").is_none() && parse_from_now("d").is_none() && parse_from_now("5é").is_none());
+    }
 
     #[test]
     fn quick_add_reads_due_dates_and_urgency() {
