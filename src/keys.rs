@@ -98,6 +98,24 @@ impl Action {
         name
     }
 
+    /// The help screen's sections, in order
+    pub const SECTIONS: &[&str] = &["Moving around", "Adding and editing", "Arranging", "Removing and undoing", "Views and more"];
+
+    /// The help screen section the action is listed under
+    pub fn section(&self) -> &'static str {
+        use Action::*;
+        Self::SECTIONS[match self {
+            SwitchFocus | MoveDown | MoveUp | NextSibling | PreviousSibling | IntoChildren | ToParent | GoToTop | GoToBottom
+            | ToggleExpand | ToggleExpandParent => 0,
+            AddSibling | AddChild | EditDescription | EditDue | EditRecurrence | ToggleComplete | IncreaseUrgency
+            | DecreaseUrgency => 1,
+            Indent | Dedent | ShiftDown | ShiftUp | StartMove | StartSort | CopyDescription | CopyModel | PasteBelow
+            | PasteAbove => 2,
+            RemoveNode | RemoveCompleted | Undo | Redo => 3,
+            ToggleShowCompleted | StartSearch | FindEverywhere | ShowHelp | Quit => 4,
+        }]
+    }
+
     /// The descriptions shown on the help screen
     pub fn description(&self) -> &'static str {
         match self {

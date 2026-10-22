@@ -697,23 +697,36 @@ fn help_bindings(app: &App) -> Vec<(String, Action)> {
     grouped
 }
 
-/// Draws the keybindings popup and returns the clamped scroll offset
+/// Draws the keybindings popup, a section at a time, and returns the clamped scroll offset
 fn draw_help(buf: &mut Buffer, app: &App, area: Rect, scroll: u16) -> u16 {
     let bindings = help_bindings(app);
     let key_w = bindings.iter().map(|(k, _)| text_width(k)).max().unwrap_or(1);
     let desc_w = bindings.iter().map(|(_, a)| text_width(a.description())).max().unwrap_or(1);
 
-    let width = (key_w + 2 + desc_w + 2) as u16;
-    let inner = popup(buf, area, width, bindings.len() as u16 + 2, "Keybindings");
+    let mut lines: Vec<Line> = vec![];
+    for section in Action::SECTIONS {
+        let entries: Vec<_> = bindings.iter().filter(|(_, a)| a.section() == *section).collect();
+        if entries.is_empty() {
+            continue;
+        }
+        if !lines.is_empty() {
+            lines.push(Line::raw(""));
+        }
+        lines.push(Line::styled(section.to_string(), Style::new().add_modifier(Modifier::BOLD)));
+        for (key, action) in entries {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:<width$}", key, width = key_w + 2), Style::new().fg(OPTIONS)),
+                Span::raw(action.description()),
+            ]));
+        }
+    }
 
-    let max_scroll = (bindings.len() as u16).saturating_sub(inner.height);
+    let width = (2 + key_w + 2 + desc_w + 2) as u16;
+    let inner = popup(buf, area, width, lines.len() as u16 + 2, "Keybindings");
+    let max_scroll = (lines.len() as u16).saturating_sub(inner.height);
     let scroll = scroll.min(max_scroll);
-    for (i, (key, action)) in bindings.iter().skip(scroll as usize).take(inner.height as usize).enumerate() {
-        let line = Line::from(vec![
-            Span::styled(format!("{:<width$}", key, width = key_w + 2), Style::new().fg(OPTIONS)),
-            Span::raw(action.description()),
-        ]);
-        buf.set_line(inner.x, inner.y + i as u16, &line, inner.width);
+    for (i, line) in lines.iter().skip(scroll as usize).take(inner.height as usize).enumerate() {
+        buf.set_line(inner.x, inner.y + i as u16, line, inner.width);
     }
     scroll
 }
