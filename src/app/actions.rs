@@ -66,6 +66,7 @@ impl App {
                     action,
                     Action::RemoveNode
                         | Action::EditDescription
+                        | Action::EditBackspace
                         | Action::EditDue
                         | Action::EditRecurrence
                         | Action::CopyDescription
@@ -147,6 +148,12 @@ impl App {
                 self.set_highlight(tree, index);
             }
             Action::EditDescription => self.start_edit(tree, Field::Description)?,
+            Action::EditBackspace => {
+                self.start_edit(tree, Field::Description)?;
+                if let Some(edit) = self.tree_mut(tree).edit.as_mut() {
+                    edit.input.keypress("backspace");
+                }
+            }
             Action::EditDue => self.start_edit(tree, Field::Due)?,
             Action::EditRecurrence => self.start_edit(tree, Field::Recurrence)?,
             Action::AddSibling => self.add_sibling(tree)?,

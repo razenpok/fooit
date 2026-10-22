@@ -983,6 +983,22 @@ fn upcoming_lists_the_next_week_by_day() {
 }
 
 #[test]
+fn backspace_starts_editing() {
+    let mut app = temp_app("backspace");
+    press(&mut app, "aWork");
+    save_and_open(&mut app);
+    press(&mut app, "typo!");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Backspace);
+    assert_eq!(app.mode, app::Mode::Insert);
+    press(&mut app, "?");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    assert_eq!(descriptions(&app), ["typo?"]);
+}
+
+#[test]
 fn walkthrough() {
     let path = std::env::var("SCENARIO_DB").map(PathBuf::from).unwrap_or_else(|_| {
         let p = std::env::temp_dir().join(format!("fooit-scenario-{}.db", std::process::id()));

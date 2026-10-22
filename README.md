@@ -57,6 +57,7 @@ completed and edited there; adding and arranging happens in their workspace.
 | `gg` / `G` | top / bottom |
 | `i` `d` `r` | edit description / due date (a date, or from now: `1d`, `1d 5h`, `30m`) / recurrence (`1d`, `2w`, `12h`) |
 | `a`, `enter` / `A` | add sibling / child |
+| backspace | edit the description, deleting its last character |
 | `z` / `Z` | toggle expansion of item / parent |
 | `J` / `K` | shift down / up |
 | `m` | move mode (see below) |

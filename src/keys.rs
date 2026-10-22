@@ -12,6 +12,7 @@ pub enum Action {
     IntoChildren,
     ToParent,
     EditDescription,
+    EditBackspace,
     EditDue,
     EditRecurrence,
     AddSibling,
@@ -55,6 +56,7 @@ impl Action {
         Action::IntoChildren,
         Action::ToParent,
         Action::EditDescription,
+        Action::EditBackspace,
         Action::EditDue,
         Action::EditRecurrence,
         Action::AddSibling,
@@ -109,7 +111,7 @@ impl Action {
         Self::SECTIONS[match self {
             SwitchFocus | MoveDown | MoveUp | NextSibling | PreviousSibling | IntoChildren | ToParent | GoToTop | GoToBottom
             | ToggleExpand | ToggleExpandParent => 0,
-            AddSibling | AddChild | EditDescription | EditDue | EditRecurrence | ToggleComplete | Snooze | IncreaseUrgency
+            AddSibling | AddChild | EditDescription | EditBackspace | EditDue | EditRecurrence | ToggleComplete | Snooze | IncreaseUrgency
             | DecreaseUrgency => 1,
             Indent | Dedent | ShiftDown | ShiftUp | StartMove | StartSort | CopyDescription | CopyModel | PasteBelow
             | PasteAbove => 2,
@@ -129,6 +131,7 @@ impl Action {
             Action::IntoChildren => "Move the cursor into the subtasks of the highlighted item",
             Action::ToParent => "Move the cursor to the parent of the highlighted item",
             Action::EditDescription => "Start editing the description of the focused item",
+            Action::EditBackspace => "Start editing the description, deleting its last character",
             Action::EditDue => "Start editing the due date of the todo",
             Action::EditRecurrence => "Start editing the recurrence of the todo",
             Action::AddSibling => "Add a sibling to highlighted item",
@@ -191,6 +194,7 @@ impl KeyManager {
             (&["<right>", "l"], Action::IntoChildren),
             (&["<left>", "h"], Action::ToParent),
             (&["i"], Action::EditDescription),
+            (&["<backspace>"], Action::EditBackspace),
             (&["d"], Action::EditDue),
             (&["r"], Action::EditRecurrence),
             (&["a", "<enter>"], Action::AddSibling),
