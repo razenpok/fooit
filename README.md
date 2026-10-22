@@ -19,7 +19,7 @@ kept to 1-4) still apply.
 ## Usage
 
 ```
-fooit [--db PATH] [-c KEYS] [-v] [config-loc | keys]
+fooit [--db PATH] [-c KEYS] [-v] [config-loc | keys | share | sync]
 fooit buy milk
 ```
 
@@ -121,6 +121,70 @@ start with a key bound twice, or one that is the start of another (`x` next to `
 
 While editing, the mouse is left to the terminal, so text can be selected.
 
+## Sync and sharing
+
+Workspaces can be synced between machines and shared with other people through a
+small server you run on Cloudflare (see [worker/](worker/README.md)). Everything is
+encrypted on your machine before it is sent; the server only keeps the order of changes.
+
+Tell fooit where the server is, in `config.toml` next to the keys file (see
+`fooit config-loc`):
+
+```toml
+[sync]
+url = "https://fooit-sync.you.workers.dev"
+token = "the OWNER_TOKEN you gave the Worker"
+```
+
+or with `FOOIT_SYNC_URL` and `FOOIT_SYNC_TOKEN`, which win over the file. The token
+is only needed to start syncing new workspaces and shares; machines that only import
+shares need neither setting.
+
+A **share** is a link that gives access to a set of workspaces. A workspace can be in
+any number of shares, so different people can get different workspaces:
+
+```
+fooit share new dev general dev       # prints the link for general + dev
+fooit share new art general art       # and one for general + art
+fooit share new me general dev art    # all three, for your own machines
+```
+
+On another machine, or for another person:
+
+```
+fooit share import 'https://fooit-sync.you.workers.dev/#…' --name from-me
+```
+
+brings in every workspace in the share, and any added to it later. Anyone with a link
+can read and change its workspaces, so give it out like a password.
+
+| command | |
+| --- | --- |
+| `fooit share new NAME WORKSPACE...` | make a share and print its link |
+| `fooit share add SHARE WORKSPACE...` | put workspaces in a share |
+| `fooit share remove SHARE WORKSPACE...` | take them out: the share's people keep what they have, but get nothing new |
+| `fooit share link SHARE` | print a share's link again |
+| `fooit share list` | the shares here and their workspaces |
+| `fooit share import LINK [--name NAME]` | add a share from its link |
+| `fooit share leave SHARE` | forget a share here; its workspaces stay, and stop syncing unless another share has them |
+| `fooit share rename SHARE NAME` | rename a share, here only |
+| `fooit sync` | sync now |
+
+While the app runs it syncs a couple of seconds after each change and every 30
+seconds otherwise, marks synced workspaces with `⇅`, and shows sync problems in the
+bar. `fooit buy milk` syncs right after adding.
+
+How it works: each synced workspace is a log on the server, holding a base (the
+whole workspace at some point) and the batches of changes pushed after it. A machine
+pulls the new batches, merges them with what changed locally since its last sync, and
+pushes the rest. When two machines change the same thing, the change that reached the
+server first wins. Batches older than 30 days are folded into the base; a machine that
+was away for longer starts again from the base, keeping its own changes. A share is a
+log too, listing the secrets of its workspaces. Taking a workspace out of a share
+moves it to a new secret, which the other shares that hold it pass on.
+
+Deleting a synced workspace deletes it for everyone it is shared with.
+
 ## Differences from dooit
 
 - dooit's Python config files (`config.py`) are not supported (keys can be rebound in
@@ -138,4 +202,11 @@ While editing, the mouse is left to the terminal, so text can be selected.
 ```
 cargo test
 cargo build --release
+```
+
+To test syncing against the Worker itself, run it with `npx wrangler dev` in `worker/`
+(with `OWNER_TOKEN` in `worker/.dev.vars`), then
+
+```
+FOOIT_TEST_SYNC_URL=http://127.0.0.1:8787 FOOIT_TEST_SYNC_TOKEN=... cargo test worker -- --ignored
 ```

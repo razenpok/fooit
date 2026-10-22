@@ -281,3 +281,51 @@ fn old_batches_fold_into_the_base() {
     me.sync(&server);
     assert_eq!(me.todos("general"), away.todos("general"));
 }
+
+/// Against a running Worker: `cd worker && npx wrangler dev`, then
+/// `FOOIT_TEST_SYNC_URL=http://127.0.0.1:8787 FOOIT_TEST_SYNC_TOKEN=... cargo test worker -- --ignored`
+#[test]
+#[ignore]
+fn worker_round_trip() {
+    let url = std::env::var("FOOIT_TEST_SYNC_URL").unwrap();
+    let token = std::env::var("FOOIT_TEST_SYNC_TOKEN").ok();
+    let owner = remote::Http::new(&url, token);
+    let guest = remote::Http::new(&url, None);
+
+    let mut me = Machine::new("worker-me");
+    three_workspaces(&mut me);
+    let uid = me.uid(me.find("general").unwrap());
+    let share = share::create(&me.conn, &owner, "all", &url, &[uid]).unwrap();
+    let mut other = Machine::new("worker-other");
+    share::import(&other.conn, &crypto::link(&url, &share.secret), None).unwrap();
+    let report = sync_all(&mut other.conn, &|_| Box::new(remote::Http::new(&url, None)) as Box<dyn Remote>);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    other.db.load().unwrap();
+    assert_eq!(other.todos("general"), ["general 1", "general 2"]);
+
+    let t = other.todo_named("general", "general 1");
+    other.db.set_description(t, "changed").unwrap();
+    assert!(sync_all(&mut other.conn, &|_| Box::new(remote::Http::new(&url, None)) as Box<dyn Remote>).pushed);
+    // a stale push is refused, and a guest cannot start logs
+    let secret = workspace::links(&me.conn).unwrap()[0].1.clone();
+    assert!(matches!(guest.push(&secret, 0, b"x").unwrap(), remote::Push::Behind));
+    assert!(guest.create(&crypto::Secret::new(), b"x").is_err());
+    assert!(guest.pull(&crypto::Secret::new(), None).unwrap().is_none());
+
+    assert!(sync_all(&mut me.conn, &|_| Box::new(remote::Http::new(&url, None)) as Box<dyn Remote>).pulled);
+    me.db.load().unwrap();
+    assert_eq!(me.todos("general"), ["changed", "general 2"]);
+
+    // folding the batches into the base, as a machine does with old ones
+    let pull = guest.pull(&secret, Some(0)).unwrap().unwrap();
+    let state = engine::load_shadow(&me.conn, &secret.log_id()).unwrap();
+    assert!(guest.compact(&secret, pull.head, &engine::seal_state(&secret, &state)).unwrap());
+    assert!(!guest.compact(&secret, pull.head, b"x").unwrap());
+    let pull = guest.pull(&secret, Some(0)).unwrap().unwrap();
+    assert!(pull.base.is_some() && pull.batches.is_empty() && pull.base_seq == pull.head);
+    let mut late = Machine::new("worker-late");
+    share::import(&late.conn, &crypto::link(&url, &share.secret), None).unwrap();
+    sync_all(&mut late.conn, &|_| Box::new(remote::Http::new(&url, None)) as Box<dyn Remote>);
+    late.db.load().unwrap();
+    assert_eq!(late.todos("general"), ["changed", "general 2"]);
+}

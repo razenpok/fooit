@@ -1260,3 +1260,26 @@ fn walkthrough() {
     key(&mut app, KeyCode::Esc);
     screen(&mut term, &mut app, "end");
 }
+
+#[test]
+fn synced_workspaces_are_marked() {
+    let mut app = temp_app("synced-mark");
+    press(&mut app, "aHome");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Work");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+    let root = app.db.root_id().unwrap();
+    let work = app.db.children(db::Parent::Ws(root), false)[1];
+    let db::Item::Ws(id) = work else { panic!() };
+    let uid = app.db.workspaces[&id].uid.clone();
+    let conn = rusqlite::Connection::open(app.db.path()).unwrap();
+    conn.execute("INSERT INTO sync_link (ws_uid, secret, endpoint) VALUES (?1, 'x', 'https://x')", [uid]).unwrap();
+    app.db.load().unwrap();
+
+    let mut term = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    let out = screen(&mut term, &mut app, "synced");
+    let line = |name: &str| out.lines().find(|l| l.contains(name)).unwrap().to_string();
+    assert!(line("  Work ").contains('⇅'), "{}", out);
+    assert!(!line("  Home ").contains('⇅'));
+}
