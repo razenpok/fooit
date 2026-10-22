@@ -157,6 +157,11 @@ pub fn is_draft(item: Item) -> bool {
     matches!(item, Item::Ws(DRAFT_ID) | Item::Todo(DRAFT_ID))
 }
 
+/// The Today view: a row at the top of the workspaces, and a list of the todos due by today
+pub const TODAY_ID: i64 = -2;
+pub const TODAY: TreeRef = TreeRef::Todos(TODAY_ID);
+pub const TODAY_ROW: Item = Item::Ws(TODAY_ID);
+
 /// An item being moved with the keyboard, and where it was, to put it back on escape
 #[derive(Clone, Copy)]
 pub struct Moving {
@@ -333,7 +338,7 @@ impl App {
 
     /// Open on the first workspace's todos, adding a new one
     pub fn start(&mut self) {
-        let first = self.ws_tree.first_enabled();
+        let first = self.ws_tree.rows.iter().position(|r| r.item != TODAY_ROW);
         self.set_highlight(TreeRef::Workspaces, first);
         if self.current_ws().is_some() {
             if let Err(e) = self.run(Action::SwitchFocus) {
@@ -421,6 +426,12 @@ impl App {
             item = self.db.same_kind_parent(i);
         }
 
+        if tree == TODAY {
+            let rows = self.today_rows(&kept, &filter.to_lowercase());
+            self.set_rows(tree, rows, highlighted_item, highlighted_index);
+            return;
+        }
+
         struct Walk<'a> {
             app: &'a App,
             todos: bool,
@@ -462,8 +473,48 @@ impl App {
         if let Some(root) = root {
             walk(&mut w, root, 0, false);
         }
-        let rows = w.rows;
+        let mut rows = w.rows;
+        if tree == TreeRef::Workspaces && !rows.is_empty() {
+            rows.insert(0, Row { item: TODAY_ROW, depth: 0, enabled: "today".contains(&filter) });
+        }
+        self.set_rows(tree, rows, highlighted_item, highlighted_index);
+    }
 
+    /// The todos due today or before, soonest first, plus a completed one under the cursor
+    fn today_rows(&self, kept: &HashSet<Item>, filter: &str) -> Vec<Row> {
+        let today = dates::now().date();
+        let mut due: Vec<_> = self
+            .db
+            .todos
+            .values()
+            .filter(|t| t.due.is_some_and(|d| d.date() <= today))
+            .filter(|t| t.pending || kept.contains(&Item::Todo(t.id)) || (self.show_completed && t.due.unwrap().date() == today))
+            .map(|t| (t.due, t.description.to_lowercase(), Item::Todo(t.id)))
+            .collect();
+        due.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        due.into_iter()
+            .map(|(_, description, item)| Row { item, depth: 0, enabled: description.contains(filter) })
+            .collect()
+    }
+
+    /// Open todos due today or before, in every workspace
+    pub fn due_today(&self) -> usize {
+        let today = dates::now().date();
+        self.db.todos.values().filter(|t| t.pending && t.due.is_some_and(|d| d.date() <= today)).count()
+    }
+
+    /// The workspace a todo is in, however deep
+    pub fn workspace_of(&self, item: Item) -> Option<Item> {
+        let mut parent = self.db.parent_of(item)?;
+        loop {
+            match parent {
+                Parent::Ws(id) => return Some(Item::Ws(id)),
+                Parent::Todo(id) => parent = self.db.parent_of(Item::Todo(id))?,
+            }
+        }
+    }
+
+    fn set_rows(&mut self, tree: TreeRef, rows: Vec<Row>, highlighted_item: Option<Item>, highlighted_index: Option<usize>) {
         let state = match tree {
             TreeRef::Workspaces => &mut self.ws_tree,
             TreeRef::Todos(ws) => self.todo_trees.get_mut(&ws).unwrap(),
@@ -488,7 +539,7 @@ impl App {
         self.rebuild(TreeRef::Workspaces);
         let existing: Vec<i64> = self.todo_trees.keys().copied().collect();
         for ws in existing {
-            if self.db.exists(Item::Ws(ws)) {
+            if ws == TODAY_ID || self.db.exists(Item::Ws(ws)) {
                 self.rebuild(TreeRef::Todos(ws));
             } else {
                 self.todo_trees.remove(&ws);

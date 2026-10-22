@@ -59,7 +59,12 @@ impl App {
             "left" | "h" if item.is_todo() && self.focus == Focus::Workspaces => return Ok(()),
             "up" | "k" | "down" | "j" if item.is_todo() && self.focus == Focus::Workspaces => {
                 let down = matches!(key, "down" | "j");
-                if let Some(Item::Ws(ws)) = self.move_target(TreeRef::Workspaces, down) {
+                let mut target = self.move_target(TreeRef::Workspaces, down);
+                if target == Some(TODAY_ROW) {
+                    self.highlight_item(TreeRef::Workspaces, TODAY_ROW);
+                    target = self.move_target(TreeRef::Workspaces, down);
+                }
+                if let Some(Item::Ws(ws)) = target.filter(|t| *t != TODAY_ROW) {
                     let last = self.db.children(Parent::Ws(ws), true).last().copied();
                     self.db.move_to(item, Parent::Ws(ws), last.filter(|l| *l != item))?;
                     self.highlight_item(TreeRef::Workspaces, Item::Ws(ws));

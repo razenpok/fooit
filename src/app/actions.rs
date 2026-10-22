@@ -37,12 +37,52 @@ impl App {
     pub(super) fn run(&mut self, action: Action) -> Result<()> {
         let tree = self.focused_tree();
 
+        // the Today row is no workspace, and the Today list has no order or nesting of its own
+        let changes_row = matches!(
+            action,
+            Action::AddSibling
+                | Action::AddChild
+                | Action::Indent
+                | Action::Dedent
+                | Action::ShiftUp
+                | Action::ShiftDown
+                | Action::StartMove
+                | Action::PasteAbove
+                | Action::PasteBelow
+                | Action::StartSort
+                | Action::RemoveCompleted
+        );
+        let on_today_row = self.tree(tree).and_then(|t| t.current()) == Some(TODAY_ROW);
+        if on_today_row
+            && (changes_row
+                || matches!(
+                    action,
+                    Action::RemoveNode
+                        | Action::EditDescription
+                        | Action::EditDue
+                        | Action::EditRecurrence
+                        | Action::EditEffort
+                        | Action::CopyDescription
+                        | Action::CopyModel
+                ))
+        {
+            return Ok(());
+        }
+        if tree == TODAY && changes_row {
+            self.notify("Today lists todos from every workspace; add and arrange them there", Level::Info);
+            return Ok(());
+        }
+
         match action {
             Action::SwitchFocus => match self.focus {
                 Focus::Workspaces => {
                     if let Some(ws) = self.current_ws() {
                         self.focus = Focus::Todos;
                         self.add_last_item(TreeRef::Todos(ws))?;
+                        let state = self.tree_mut(TreeRef::Todos(ws));
+                        if state.highlighted.is_none() {
+                            state.highlighted = state.first_enabled();
+                        }
                     }
                 }
                 Focus::Todos => self.focus = Focus::Workspaces,

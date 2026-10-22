@@ -60,6 +60,10 @@ impl App {
             return Ok(());
         }
 
+        // the Today row and the Today list cannot be rearranged
+        if item == TODAY_ROW || tree == TODAY {
+            return Ok(());
+        }
         self.drag = Some(Drag {
             tree,
             item,
@@ -109,7 +113,10 @@ impl App {
         }
         let (target, onto) = if drag.tree.is_todos() && self.ws_tree.view.area.contains(Position::new(x, y)) {
             let current = self.current_ws().map(Item::Ws);
-            let onto = self.row_at(x, y).map(|(_, i)| self.ws_tree.rows[i].item).filter(|ws| Some(*ws) != current);
+            let onto = self
+                .row_at(x, y)
+                .map(|(_, i)| self.ws_tree.rows[i].item)
+                .filter(|ws| Some(*ws) != current && *ws != TODAY_ROW);
             (None, onto)
         } else {
             (self.drop_target(drag, x, y), None)
@@ -194,6 +201,8 @@ impl App {
         } else {
             (dragged.start.checked_sub(1), Some(dragged.end).filter(|b| *b < rows.len()))
         };
+        // nothing goes above or under the Today row
+        let above = above.filter(|a| rows[*a].item != TODAY_ROW);
 
         let max = above.map_or(0, |a| rows[a].depth + 1);
         let min = below.map_or(0, |b| rows[b].depth).min(max);

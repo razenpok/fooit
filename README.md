@@ -35,6 +35,10 @@ todo leaves its text as typed.
 The app opens on the first workspace's todos, already adding a new one; `escape`
 drops it.
 
+**Today**, at the top of the workspace list, lists the open todos due today or earlier
+from every workspace, soonest first, each with the workspace it is in. They can be
+completed and edited there; adding and arranging happens in their workspace.
+
 ## Keys
 
 | key | action |

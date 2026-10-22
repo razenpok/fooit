@@ -1,6 +1,6 @@
 //! Rendering, in the style of lazygit's default theme and layout
 
-use crate::app::{indent, is_draft, layout, row_cells, App, MARKER_WIDTH, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
+use crate::app::{indent, is_draft, layout, row_cells, App, MARKER_WIDTH, TODAY, TODAY_ROW, Bar, Field, Focus, Level, Mode, Row, TreeRef, View};
 use crate::db::Item;
 use crate::keys::Action;
 use chrono::Timelike;
@@ -203,6 +203,9 @@ fn draw_dashboard(buf: &mut Buffer, area: Rect) {
 // Trees
 
 fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
+    if item == TODAY_ROW {
+        return vec![Span::raw("Today")];
+    }
     let Item::Todo(id) = item else {
         return vec![Span::raw(display(app.db.description(item)))];
     };
@@ -218,9 +221,9 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
     match field {
         Field::Description if done => vec![Span::styled(display(&todo.description), Style::new().fg(DIM))],
         Field::Description => vec![Span::raw(display(&todo.description))],
-        Field::Status => vec![match todo.status() {
-            "completed" => Span::styled("✓", Style::new().fg(Color::Green)),
-            "overdue" => bold("!".into(), Color::Red),
+        Field::Status => vec![match () {
+            _ if done => Span::styled("✓", Style::new().fg(Color::Green)),
+            _ if overdue(todo) => bold("!".into(), Color::Red),
             _ => Span::raw("○"),
         }],
         Field::Due => match todo.due {
@@ -229,7 +232,7 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
                 let now = crate::dates::now();
                 let color = match () {
                     _ if done => DIM,
-                    _ if todo.is_overdue() => Color::Red,
+                    _ if overdue(todo) => Color::Red,
                     _ if due.date() == now.date() => Color::Yellow,
                     _ => Color::Reset,
                 };
@@ -255,6 +258,18 @@ fn formatted(app: &App, item: Item, field: Field) -> Vec<Span<'static>> {
                 vec![Span::styled(format!("↻{}", crate::dates::recurrence_to_string(r)), Style::new().fg(color))]
             }
         },
+    }
+}
+
+/// Whether a pending todo is past its due date. One without a time is due by the end of
+/// its day, rather than from midnight on as dooit has it
+fn overdue(todo: &crate::db::Todo) -> bool {
+    let now = crate::dates::now();
+    match todo.due {
+        _ if !todo.pending => false,
+        Some(due) if due.hour() == 0 && due.minute() == 0 => due.date() < now.date(),
+        Some(due) => due < now,
+        None => false,
     }
 }
 
@@ -349,6 +364,9 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
     // a dim note after the description: done and all children of a todo, open todos of a workspace
     let note = match row.item {
         _ if editing || is_draft(row.item) => None,
+        // in Today, the workspace each todo comes from
+        Item::Todo(_) if tree == TODAY => app.workspace_of(row.item).map(|ws| format!("#{}", app.db.description(ws))),
+        _ if row.item == TODAY_ROW => Some(app.due_today()).filter(|due| *due > 0).map(|due| due.to_string()),
         Item::Todo(_) => Some(app.progress(row.item)).filter(|(_, all)| *all > 0).map(|(done, all)| format!("{}/{}", done, all)),
         Item::Ws(_) => Some(app.open_todos(row.item)).filter(|open| *open > 0).map(|open| open.to_string()),
     };
@@ -394,7 +412,7 @@ fn build_row(app: &App, tree: TreeRef, row: &Row, widths: &[(Field, usize)], tot
         .collect();
 
     let marker = match () {
-        _ if !app.has_children(row.item) => "",
+        _ if tree == TODAY || !app.has_children(row.item) => "",
         _ if app.collapsed.contains(&row.item) => "▸",
         _ => "▾",
     };
@@ -423,7 +441,11 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
             TreeRef::Todos(_) => app.focus == Focus::Todos,
         };
 
-    let (number, title) = if tree.is_todos() { (2, "Todos") } else { (1, "Workspaces") };
+    let (number, title) = match tree {
+        TODAY => (2, "Today"),
+        TreeRef::Todos(_) => (2, "Todos"),
+        TreeRef::Workspaces => (1, "Workspaces"),
+    };
     let searching = matches!(app.bar, Bar::Search { tree: t, .. } if t == tree);
     let border = match () {
         _ if searching => Some(SEARCHING_BORDER),

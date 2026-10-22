@@ -212,7 +212,7 @@ fn children_are_shown_on_start() {
     key(&mut app, KeyCode::Esc);
 
     let mut app = app::App::new(db::Db::open(&path).unwrap());
-    press(&mut app, "j");
+    press(&mut app, "jj");
     key(&mut app, KeyCode::Tab);
     key(&mut app, KeyCode::Esc);
     assert_eq!(descriptions(&app), ["parent", "child"]);
@@ -533,7 +533,7 @@ fn closing_while_adding_keeps_no_empty_todo() {
     app.close();
 
     let mut app = app::App::new(db::Db::open(&path).unwrap());
-    press(&mut app, "j");
+    press(&mut app, "jj");
     key(&mut app, KeyCode::Tab);
     app.close();
     assert_eq!(descriptions(&app), ["typed"]);
@@ -743,6 +743,46 @@ fn moving_passes_hidden_completed_todos() {
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
     assert_eq!(depths(&app), [("c".into(), 0), ("a".into(), 0), ("new".into(), 1)]);
+}
+
+#[test]
+fn today_lists_what_is_due_across_workspaces() {
+    let mut app = temp_app("today");
+    let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    press(&mut app, "aWork");
+    key(&mut app, KeyCode::Enter);
+    press(&mut app, "Home");
+    save_and_open(&mut app);
+    for d in ["laundry today", "plants tomorrow", "no date"] {
+        press(&mut app, d);
+        key(&mut app, KeyCode::Enter);
+    }
+    key(&mut app, KeyCode::Esc);
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "k");
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "report yesterday");
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Esc);
+
+    // Today sits at the top of the workspaces, and opening it adds nothing
+    key(&mut app, KeyCode::Tab);
+    press(&mut app, "gg");
+    let s = screen(&mut term, &mut app, "today row");
+    assert!(s.contains("Today") && app.current_ws() == Some(app::TODAY_ID));
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.mode, app::Mode::Normal);
+    assert_eq!(descriptions(&app), ["report", "laundry"]);
+    let s = screen(&mut term, &mut app, "today");
+    assert!(s.contains("[2]─Today") && s.contains("#Work") && s.contains("#Home"), "{s}");
+
+    // things can be done there, but not arranged
+    press(&mut app, "a");
+    assert_eq!(app.mode, app::Mode::Normal);
+    press(&mut app, "c");
+    assert_eq!(descriptions(&app), ["report", "laundry"]);
+    press(&mut app, "j");
+    assert_eq!(descriptions(&app), ["laundry"]);
 }
 
 #[test]

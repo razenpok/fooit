@@ -13,7 +13,7 @@ impl App {
     }
 
     pub(super) fn add_last_item(&mut self, tree: TreeRef) -> Result<()> {
-        if self.tree(tree).and_then(|t| t.editing()).is_some() {
+        if tree == TODAY || self.tree(tree).and_then(|t| t.editing()).is_some() {
             return Ok(());
         }
         let parent = match tree {

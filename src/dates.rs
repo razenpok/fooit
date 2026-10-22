@@ -429,7 +429,7 @@ pub fn quick_add(text: &str) -> (String, Option<NaiveDateTime>, Option<i64>) {
 }
 
 fn is_date_phrase(words: &[&str]) -> bool {
-    const DAYS: [&str; 10] = ["today", "tomorrow", "mon", "tue", "tues", "thu", "thur", "thurs", "fri", "now"];
+    const DAYS: [&str; 11] = ["today", "tomorrow", "yesterday", "mon", "tue", "tues", "thu", "thur", "thurs", "fri", "now"];
     const FULL_DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
     let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
