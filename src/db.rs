@@ -845,7 +845,7 @@ impl Db {
 
     /// The last `#word` in a text that names a workspace, and the text without it. A name
     /// that is typed out in full wins over one it is only the start of
-    fn workspace_tag(&self, text: &str) -> (String, Option<i64>) {
+    pub fn workspace_tag(&self, text: &str) -> (String, Option<i64>) {
         let names: Vec<(i64, String)> = self
             .workspaces
             .values()

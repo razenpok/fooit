@@ -639,6 +639,15 @@ fn new_todos_read_due_dates_and_urgency() {
     assert_eq!((todo.description.as_str(), todo.urgency), ("pay rent", 3));
     assert_eq!(todo.due.unwrap().date(), dates::now().date() + chrono::Duration::days(1));
 
+    // what will be read shows while typing
+    let mut term = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    press(&mut app, "a");
+    press(&mut app, "call bank fri !2 every 1w");
+    let s = screen(&mut term, &mut app, "preview");
+    assert!(s.contains("→ due ") && s.contains(" · !2 · ↻1w"), "{s}");
+    key(&mut app, KeyCode::Esc);
+    press(&mut app, "y");
+
     // only new todos: editing keeps the words
     press(&mut app, "i");
     press(&mut app, " tomorrow");

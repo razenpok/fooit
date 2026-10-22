@@ -620,6 +620,30 @@ fn draw_tree(buf: &mut Buffer, app: &mut App, tree: TreeRef, area: Rect) {
 // ----------------------------------------------------------------------
 // Bars
 
+/// What a new todo's text will set, as it is typed: due date, urgency, recurrence and workspace
+fn quick_add_preview(app: &App) -> Option<String> {
+    let edit = app.tree(app.focused_tree())?.editing().filter(|e| e.field == Field::Description)?;
+    if !matches!(edit.item, Item::Todo(_)) || !is_draft(edit.item) {
+        return None;
+    }
+    let (text, workspace) = app.db.workspace_tag(&edit.input.value());
+    let read = crate::dates::quick_add(&text);
+    let mut parts = vec![];
+    if let Some(due) = read.due {
+        parts.push(format!("due {}", due_text(due, crate::dates::now())));
+    }
+    if let Some(urgency) = read.urgency {
+        parts.push(format!("!{}", urgency));
+    }
+    if let Some(recurrence) = read.recurrence {
+        parts.push(format!("↻{}", crate::dates::recurrence_to_string(recurrence)));
+    }
+    if let Some(ws) = workspace {
+        parts.push(format!("#{}", app.db.description(Item::Ws(ws))));
+    }
+    (!parts.is_empty()).then(|| format!("→ {}", parts.join(" · ")))
+}
+
 /// lazygit's "Action: key | Action: key" options line
 /// The options line for actions, with the first key each is bound to; unbound ones are left out
 fn action_options(app: &App, actions: &[(&str, Action)]) -> Line<'static> {
@@ -660,7 +684,11 @@ fn draw_bar(buf: &mut Buffer, app: &App, area: Rect) {
             options(&[("Go to", "enter"), ("Complete", &complete), ("Edit", &edit), ("Close", "esc")])
         }
         Bar::Status if app.mode == Mode::Insert => {
-            options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")])
+            let mut line = options(&[("Save", "enter"), ("Discard", "esc"), ("Save and move", "up/down"), ("Indent", "tab/shift+tab")]);
+            if let Some(preview) = quick_add_preview(app) {
+                line.spans.insert(0, Span::styled(format!("{}  ", preview), Style::new().fg(Color::Green)));
+            }
+            line
         }
         Bar::Status if app.focus == Focus::Todos => action_options(
             app,
